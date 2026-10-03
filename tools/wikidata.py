@@ -8,6 +8,7 @@ import os
 import time
 import sqlite3
 from pathlib import Path
+from db_source import ensure_schema, render_database
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
