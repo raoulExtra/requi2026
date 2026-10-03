@@ -206,8 +206,13 @@ def _term_markdown(db: sqlite3.Connection, path: str) -> str:
     for (related_path,) in db.execute("SELECT related_path FROM term_related WHERE term_path = ? ORDER BY related_path", (path,)):
         lines.append(f"- [{Path(related_path).stem}]({Path(related_path).name})")
     lines.extend(["", "## Requirements"])
-    for (requirement_id,) in db.execute("SELECT requirement_id FROM term_requirements WHERE term_path = ? ORDER BY requirement_id", (path,)):
-        lines.append(f"- [{requirement_id}](../requirements.md#{requirement_id.lower()})")
+    for requirement_id, source in db.execute(
+        "SELECT r.id, r.source FROM requirements AS r "
+        "JOIN term_requirements AS tr ON tr.requirement_id = r.id "
+        "WHERE tr.term_path = ? ORDER BY r.id",
+        (path,),
+    ):
+        lines.append(f"- [{requirement_id}](../{source}#{requirement_id.lower()})")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -274,17 +279,26 @@ def database_markdown(db: sqlite3.Connection) -> dict[str, str]:
             )
         )
         requirements = ", ".join(
-            f"[{req_id}](requirements.md#{req_id.lower()})"
-            for (req_id,) in db.execute(
-                "SELECT requirement_id FROM term_requirements WHERE term_path = ? ORDER BY requirement_id", (path,)
+            f"[{req_id}]({source}#{req_id.lower()})"
+            for req_id, source in db.execute(
+                "SELECT r.id, r.source FROM requirements AS r "
+                "JOIN term_requirements AS tr ON tr.requirement_id = r.id "
+                "WHERE tr.term_path = ? ORDER BY r.id",
+                (path,),
             )
         )
         glossary_rows.append(f"| [{name}]({path}) | {definition} | {related} | {requirements} |")
     sources["glossary.md"] = f"# Glossary\n\n<!-- requi:begin glossary -->\n{chr(10).join(glossary_rows)}\n<!-- requi:end -->\n"
+    categories: dict[str, tuple[str, str]] = {}
+    for source, _ in db.execute("SELECT path, title FROM requirement_sources ORDER BY path"):
+        parts = Path(source).parts
+        category = parts[1] if len(parts) > 2 else Path(source).stem
+        category_path = f"requirements/{category}/" if len(parts) > 2 else source
+        label = f"{category.upper() if category == 'db' else category.replace('-', ' ').title()} requirements"
+        categories[category] = (label, category_path)
     requirement_rows = "\n".join(
-        f"- [{req_id} — {title}]({source}#{req_id.lower()})"
-        for req_id, title, source in db.execute("SELECT id, title, source FROM requirements ORDER BY id")
-    ) or "(no requirements yet)"
+        f"- [{label}]({path})" for label, path in sorted(categories.values())
+    ) or "(no requirement categories yet)"
     sources["requirements.md"] = f"# Requirements\n\n<!-- requi:begin requirements -->\n{requirement_rows}\n<!-- requi:end -->\n"
     return sources
 
