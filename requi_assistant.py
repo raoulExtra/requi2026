@@ -19,9 +19,9 @@ SYSTEM_PROMPT = """You are a requirements-engineering assistant working on a loc
 Project rules:
 - Requirements use IDs REQ-### and are never reused or renumbered.
 - Each requirement has Status (PROPOSED, ACTIVE, or RETIRED) and Source.
-- Terms live in terms/<kebab-case-name>.md.
+- Terms are stored in `requi.db` and rendered to `out/terms/<kebab-case-name>.html`; they do not require `terms/*.md` files.
 - Requirement links to terms and terms link back to requirements.
-- Keep requirements.md, glossary.md, and related term pages synchronized.
+- Keep requirements.md, glossary.md, and related term pages synchronized in the generated HTML site.
 - Do not invent facts or silently edit files.
 
 Review the supplied project context. Answer the user's request with concrete file paths,

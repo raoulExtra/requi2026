@@ -41,6 +41,6 @@ The local model and helper are advisory. They do not have permission to silently
 
 - Requirement IDs use `REQ-###`; IDs are never reused or renumbered.
 - Requirement status is `PROPOSED`, `ACTIVE`, or `RETIRED`.
-- Term files use `terms/<kebab-case-name>.md`.
+- Terms are stored in `requi.db` and rendered to `out/terms/<kebab-case-name>.html`; they do not require `terms/*.md` files.
 - Requirement-to-term and term-to-requirement links are bidirectional.
 - Keep example content clearly marked or remove it when real project content is added.

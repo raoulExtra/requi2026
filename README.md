@@ -6,6 +6,6 @@ Requi is a project requirements and architecture knowledge graph for the OMA wor
 
 ## Description
 
-Semantic project data is stored in `requi.db`. Terms, layers, requirements, and Wikidata Lexemes are exposed as generated Markdown projections and as a clickable HTML site.
+Semantic project data is stored in `requi.db`. Terms are rendered directly from SQLite into HTML; layers, requirements, and Wikidata Lexemes also retain generated Markdown projections. The result is a clickable HTML site.
 
 See [_HOME.md](_HOME.md) for the repository layout and workflow.

@@ -293,35 +293,6 @@ def markdown_database_differences(db: sqlite3.Connection) -> list[str]:
     """Find semantic Markdown content that is absent from or differs from SQLite."""
     errors: list[str] = []
 
-    db_term_paths = {path for (path,) in db.execute("SELECT path FROM terms")}
-    md_term_paths = {
-        path.relative_to(ROOT).as_posix()
-        for path in (ROOT / "terms").glob("*.md")
-    }
-    for relative in sorted(md_term_paths - db_term_paths):
-        errors.append(f"{relative}: Markdown term is absent from SQLite")
-    for relative in sorted(db_term_paths - md_term_paths):
-        errors.append(f"{relative}: SQLite term has no Markdown projection")
-    for relative in sorted(md_term_paths & db_term_paths):
-        markdown = _term_row(ROOT / relative)
-        row = db.execute(
-            "SELECT name, definition, wikidata_id, lexeme_id, lexeme_pending FROM terms WHERE path = ?",
-            (relative,),
-        ).fetchone()
-        db_term = dict(zip(("name", "definition", "wikidata_id", "lexeme_id", "lexeme_pending"), row))
-        for field in ("name", "definition", "wikidata_id", "lexeme_id", "lexeme_pending"):
-            if markdown[field] != db_term[field]:
-                errors.append(f"{relative}: {field} differs between Markdown and SQLite")
-        for field, query in (
-            ("layers", "SELECT layer_id FROM term_layers WHERE term_path = ?"),
-            ("related", "SELECT related_path FROM term_related WHERE term_path = ?"),
-            ("requirements", "SELECT requirement_id FROM term_requirements WHERE term_path = ?"),
-        ):
-            markdown_values = set(markdown[field])
-            db_values = {value for (value,) in db.execute(query, (relative,))}
-            if markdown_values != db_values:
-                errors.append(f"{relative}: {field} differs between Markdown and SQLite")
-
     db_layer_ids = {layer_id for (layer_id,) in db.execute("SELECT id FROM layers")}
     md_layers = {
         path.stem: path
@@ -401,13 +372,11 @@ def render_database(db: sqlite3.Connection | None = None) -> None:
     owns_db = db is None
     db = db or sqlite3.connect(ROOT / "requi.db")
     sources = database_markdown(db)
-    expected_terms = {ROOT / path for path in sources if path.startswith("terms/")}
+    for path in (ROOT / "terms").glob("*.md"):
+        path.unlink()
     expected_layers = {ROOT / path for path in sources if path.startswith("layers/") and path != "layers/_layers.md"}
     expected_requirements = {ROOT / path for path in sources if path.startswith("requirements/")}
     expected_lexemes = {ROOT / path for path in sources if path.startswith("lexemes/L")}
-    for path in (ROOT / "terms").glob("*.md"):
-        if path not in expected_terms:
-            path.unlink()
     for path in (ROOT / "layers").glob("*.md"):
         if path.name != "_layers.md" and path not in expected_layers:
             path.unlink()
@@ -418,6 +387,8 @@ def render_database(db: sqlite3.Connection | None = None) -> None:
         if path not in expected_lexemes:
             path.unlink()
     for relative, content in sources.items():
+        if relative.startswith("terms/"):
+            continue
         target = ROOT / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")

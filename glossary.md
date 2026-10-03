@@ -8,6 +8,7 @@
 | [Create](terms/create.md) | Establish a new resource or record. |  |  |
 | [Cursor](terms/cursor.md) | A stateful handle for traversing, reading, or incrementally processing a result set. | [index](terms/index.md), [row](terms/row.md) |  |
 | [Delete](terms/delete.md) | Remove an existing resource or record. |  |  |
+| [home](terms/home.md) |  |  |  |
 | [Index](terms/index.md) | An auxiliary data structure that accelerates lookup or ordering by selected table columns or keys. | [column](terms/column.md), [cursor](terms/cursor.md), [table](terms/table.md) |  |
 | [layer Wikidata](terms/layer-wikidata.md) |  |  |  |
 | [lexeme](terms/lexeme.md) |  |  |  |

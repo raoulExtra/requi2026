@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the Requi Markdown graph into a self-contained clickable HTML site."""
+"""Render SQLite-backed entities and Markdown sources into a self-contained HTML site."""
 from __future__ import annotations
 
 import hashlib
@@ -242,11 +242,11 @@ def main() -> None:
     (OUT / "index.html").write_text(
         '<!doctype html><meta charset="utf-8"><title>Requi</title>'
         '<style>body{font:16px system-ui,sans-serif;max-width:68rem;margin:2rem auto}a{color:#06c}</style>'
-        '<h1>Requi</h1><p>Clickable generated HTML for every Markdown file.</p><ul>'
+        '<h1>Requi</h1><p>Clickable generated HTML for every database entity and Markdown source.</p><ul>'
         + links + "</ul>",
         encoding="utf-8",
     )
-    print(f"Generated {len(sources)} Markdown pages in {OUT.relative_to(ROOT)}/")
+    print(f"Generated {len(sources)} HTML pages in {OUT.relative_to(ROOT)}/")
     db.commit()
     db.close()
 

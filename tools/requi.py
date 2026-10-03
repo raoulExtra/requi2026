@@ -22,13 +22,14 @@ def render() -> None:
         db.commit()
     finally:
         db.close()
+    subprocess.run([sys.executable, str(ROOT / "tools" / "site.py")], check=True)
 
 COMMANDS = (
-    ("add-term", "Create a term and optionally assign it to a layer", "python3 tools/requi.py add-term NAME --definition TEXT [--layer ID]"),
-    ("list-terms", "List all terms", "python3 tools/requi.py list-terms"),
-    ("show-term", "Display one term file", "python3 tools/requi.py show-term NAME"),
-    ("update-term", "Update a term definition or layer", "python3 tools/requi.py update-term NAME [--definition TEXT] [--layer ID]"),
-    ("delete-term", "Delete a term file and rebuild indexes", "python3 tools/requi.py delete-term NAME"),
+    ("add-term", "Create a term in SQLite and render its HTML page", "python3 tools/requi.py add-term NAME --definition TEXT [--layer ID]"),
+    ("list-terms", "List all database terms and HTML routes", "python3 tools/requi.py list-terms"),
+    ("show-term", "Display one database term as Markdown", "python3 tools/requi.py show-term NAME"),
+    ("update-term", "Update a term in SQLite and render its HTML page", "python3 tools/requi.py update-term NAME [--definition TEXT] [--layer ID]"),
+    ("delete-term", "Delete a term from SQLite and rebuild HTML", "python3 tools/requi.py delete-term NAME"),
     ("create", "Create a supported entity", "python3 tools/requi.py create ENTITY NAME"),
     ("read", "Read a supported entity or database view", "python3 tools/requi.py read ENTITY [NAME]"),
     ("update", "Update a supported entity", "python3 tools/requi.py update ENTITY NAME"),
@@ -139,7 +140,7 @@ def add_term(name: str, definition: str, layer: str | None) -> None:
     db = source_db()
     if db.execute("SELECT 1 FROM terms WHERE lower(name) = lower(?)", (name,)).fetchone():
         db.close()
-        raise ValueError(f"term already exists: {path.relative_to(ROOT)}")
+        raise ValueError(f"term already exists: out/{path.relative_to(ROOT).with_suffix('.html').as_posix()}")
     if layer and not db.execute("SELECT 1 FROM layers WHERE id = ?", (layer,)).fetchone():
         db.close()
         raise ValueError(f"unknown layer: {layer}")
@@ -150,13 +151,13 @@ def add_term(name: str, definition: str, layer: str | None) -> None:
     db.commit()
     db.close()
     render()
-    print(relative)
+    print((Path("out") / path.relative_to(ROOT).with_suffix(".html")).as_posix())
 
 
 def list_terms() -> None:
     db = source_db()
     for name, path in db.execute("SELECT name, path FROM terms ORDER BY lower(name), path"):
-        print(f"{name}\t{path}")
+        print(f"{name}\t{(Path('out') / Path(path).with_suffix('.html')).as_posix()}")
     db.close()
 
 
@@ -300,8 +301,6 @@ def check() -> int:
     layer_ids = {layer_id for (layer_id,) in db.execute("SELECT id FROM layers")}
     requirement_ids = {requirement_id for (requirement_id,) in db.execute("SELECT id FROM requirements")}
     for path in term_paths:
-        if not (ROOT / path).exists():
-            errors.append(f"missing generated term: {path}")
         for (layer_id,) in db.execute("SELECT layer_id FROM term_layers WHERE term_path = ?", (path,)):
             if layer_id not in layer_ids:
                 errors.append(f"{path}: missing layer {layer_id}")
