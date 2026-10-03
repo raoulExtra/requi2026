@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import hashlib
 import argparse
 import re
 import sqlite3
 import subprocess
 import sys
 from pathlib import Path
-from db_source import ensure_schema, import_markdown, render_database, _layer_markdown, _term_markdown
+from db_source import ensure_schema, import_markdown, markdown_database_differences, render_database, _layer_markdown, _term_markdown
 from command_ast import load_commands, render_argparse, render_json, render_tree, select_commands
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -318,6 +317,7 @@ def check() -> int:
     if not (ROOT / "requirements.md").exists():
         errors.append("missing generated requirements.md")
     referenced = db.execute("SELECT COUNT(DISTINCT requirement_id) FROM term_requirements").fetchone()[0]
+    errors.extend(markdown_database_differences(db))
     db.close()
     if errors:
         print("CHECK FAILED")
@@ -326,30 +326,7 @@ def check() -> int:
     print(f"CHECK OK: {len(term_paths)} terms, {len(layer_ids)} layers, {referenced} referenced requirements")
     return 0
 def site_status() -> int:
-    db = sqlite3.connect(ROOT / "requi.db")
-    try:
-        rows = db.execute("SELECT path, source_hash FROM site_sources").fetchall()
-    except sqlite3.OperationalError:
-        print("STALE: site has never been generated")
-        return 1
-    recorded_paths = {relative for relative, _ in rows}
-    current_paths = {
-        str(path.relative_to(ROOT))
-        for path in ROOT.rglob("*.md")
-        if "out" not in path.parts and ".git" not in path.parts
-    }
-    stale = sorted(current_paths - recorded_paths)
-    for relative, recorded in rows:
-        path = ROOT / relative
-        current = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
-        if current != recorded or not (ROOT / "out" / Path(relative).with_suffix(".html")).exists():
-            stale.append(relative)
-    if stale:
-        print("STALE: run python3 tools/site.py")
-        print("\n".join(f"- {path}" for path in stale))
-        return 1
-    print("HTML CURRENT")
-    return 0
+    return subprocess.run([sys.executable, str(ROOT / "tools" / "site.py"), "--status"], check=False).returncode
 
 def command_catalog() -> dict[str, tuple[str, str]]:
     if not (ROOT / "requi.db").exists():

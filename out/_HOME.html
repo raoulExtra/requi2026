@@ -14,7 +14,7 @@
 <tr><td><a href="lexeme/_lexeme.html">Lexeme index</a></td><td>One file per Wikidata Lexeme <code>L-#####</code></td></tr>
 <tr><td><a href="requirements.html">requirements.md</a></td><td>All requirements, IDs such as <code>REQ-###</code> and <code>DB-###</code> (never reused)</td></tr>
 <tr><td><a href="requirements/index.html">requirements/</a></td><td>Optional detail file per requirement</td></tr>
-<tr><td><a href="requi.html">requi.db</a></td><td>Canonical semantic graph and migration state; <code>build</code> performs the one-time Markdown import, then SQLite drives projections</td></tr>
+<tr><td><a href="requi.html">requi.db</a></td><td>Canonical semantic graph and migration state; <code>build</code> performs the one-time Markdown import, then SQLite drives projections and site rendering</td></tr>
 <tr><td><a href="tools/wikidata.html">tools/wikidata.py</a></td><td>Exact Wikidata item lookup and SPARQL Lexeme lookup; writes resolved metadata to <code>requi.db</code></td></tr>
 <tr><td><a href="tools/requi.html">tools/requi.py</a></td><td><code>build</code> (schema/migration) · <code>render</code> (db→md) · <code>ast</code> (command tree/JSON/parser generator) · <code>db status</code> · <code>db list lexemes</code> · <code>list lexeme</code> · <code>q "&lt;sql&gt;"</code> · <code>check</code></td></tr>
 <tr><td><a href="COMMAND_AST.html">COMMAND_AST.md</a></td><td>Command AST views and generated <code>argparse</code> parser code</td></tr>
@@ -23,6 +23,6 @@
 <ul>
 <li><strong>Term file:</strong> H1 = display name; optional metadata line <code>&gt; <strong>Wikidata:</strong> <a href="url.html">Q####</a></code> / <code>&gt; <strong>Lexeme:</strong> <a href="lexeme/L-.html####.md">L-####</a></code>; sections <code>## Definition</code>, <code>## Layers</code>, <code>## Related terms</code>, <code>## Requirements</code>.</li>
 <li><strong>Bidirectional links:</strong> term ↔ requirement (<code>REQ-###</code>), term ↔ layer. Keep both sides or run <code>tools/requi.py check</code> which reports orphans (see <code>v_term_orphans</code>, <code>v_layer_orphans</code>).</li>
-<li><strong>SQLite source of truth:</strong> edit semantic entities through <code>tools/requi.py</code> or the database. Markdown under <code>terms/</code>, <code>layers/</code>, <code>requirements/</code>, and <code>lexeme/</code> is generated from SQLite.</li>
-<li><strong>Workflow:</strong> <code>python3 tools/requi.py build</code> (one-time migration) → use <code>add</code>/<code>update</code>/<code>delete</code> or SQL → <code>python3 tools/requi.py render</code> → <code>python3 tools/site.py</code>.</li>
+<li><strong>SQLite source of truth:</strong> edit semantic entities through <code>tools/requi.py</code> or the database. Markdown under <code>terms/</code>, <code>layers/</code>, <code>requirements/</code>, and <code>lexeme/</code> is a generated SQLite projection; <code>check</code> reports semantic Markdown information absent from or different from SQLite.</li>
+<li><strong>Workflow:</strong> <code>python3 tools/requi.py build</code> (one-time migration) → use <code>add</code>/<code>update</code>/<code>delete</code> or SQL → <code>python3 tools/requi.py render</code> for Markdown projections → <code>python3 tools/site.py</code> renders managed pages directly from SQLite. <code>python3 tools/requi.py status</code> checks the same SQLite-backed source map.</li>
 </ul></main>

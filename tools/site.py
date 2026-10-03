@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import hashlib
-import sqlite3
 import html
 import re
-import shutil
+import sqlite3
+import sys
 from pathlib import Path
+from db_source import database_markdown
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "out"
@@ -134,30 +135,79 @@ def page(title: str, body: str, source: Path) -> str:
 <main>{body}</main>
 '''
 
+def _is_database_projection(relative: str) -> bool:
+    path = Path(relative)
+    return relative in {"glossary.md", "requirements.md"} or path.parts[:1] in {
+        ("terms",),
+        ("layers",),
+        ("requirements",),
+        ("lexeme",),
+    }
+
+
+def markdown_sources(db: sqlite3.Connection) -> dict[str, str]:
+    """Return static Markdown plus SQLite-backed projections for site rendering."""
+    sources = {
+        str(path.relative_to(ROOT)): path.read_text(encoding="utf-8")
+        for path in ROOT.rglob("*.md")
+        if OUT not in path.parents and ".git" not in path.parts
+        and not _is_database_projection(str(path.relative_to(ROOT)))
+    }
+    sources.update(database_markdown(db))
+    return dict(sorted(sources.items()))
+
+
+def status() -> int:
+    db = sqlite3.connect(ROOT / "requi.db")
+    try:
+        rows = db.execute("SELECT path, source_hash FROM site_sources").fetchall()
+    except sqlite3.OperationalError:
+        db.close()
+        print("STALE: site has never been generated")
+        return 1
+    current = markdown_sources(db)
+    current_hashes = {
+        relative: hashlib.sha256(content.encode("utf-8")).hexdigest()
+        for relative, content in current.items()
+    }
+    recorded = {relative: source_hash for relative, source_hash in rows}
+    stale = sorted(set(current_hashes) - set(recorded))
+    for relative, source_hash in recorded.items():
+        generated = OUT / Path(relative).with_suffix(".html")
+        if current_hashes.get(relative) != source_hash or not generated.exists():
+            stale.append(relative)
+    db.close()
+    if stale:
+        print("STALE: run python3 tools/site.py")
+        print("\n".join(f"- {path}" for path in sorted(set(stale))))
+        return 1
+    print("HTML CURRENT")
+    return 0
+
+
 
 def main() -> None:
     db = sqlite3.connect(ROOT / "requi.db")
     db.execute("CREATE TABLE IF NOT EXISTS site_sources(path TEXT PRIMARY KEY, source_hash TEXT NOT NULL, generated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
     OUT.mkdir(parents=True, exist_ok=True)
-    markdown_files = sorted(ROOT.rglob("*.md"))
-    markdown_files = [path for path in markdown_files if OUT not in path.parents and ".git" not in path.parts]
-    current_sources = {str(path.relative_to(ROOT)) for path in markdown_files}
+    sources = markdown_sources(db)
     for (relative_source,) in db.execute("SELECT path FROM site_sources").fetchall():
-        if relative_source not in current_sources:
+        if relative_source not in sources:
             generated = OUT / Path(relative_source).with_suffix(".html")
             if generated.exists():
                 generated.unlink()
             db.execute("DELETE FROM site_sources WHERE path = ?", (relative_source,))
-    for source in markdown_files:
-        destination = OUT / source.relative_to(ROOT).with_suffix(".html")
+    for relative, markdown in sources.items():
+        source = ROOT / relative
+        destination = OUT / Path(relative).with_suffix(".html")
         destination.parent.mkdir(parents=True, exist_ok=True)
-        title_match = re.search(r"^# (?:Layer: )?(.+)$", source.read_text(encoding="utf-8"), re.M)
+        title_match = re.search(r"^# (?:Layer: )?(.+)$", markdown, re.M)
         title = title_match.group(1).strip() if title_match else source.stem
-        destination.write_text(page(title, render(source.read_text(encoding="utf-8"), source), source), encoding="utf-8")
-        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        destination.write_text(page(title, render(markdown, source), source), encoding="utf-8")
+        digest = hashlib.sha256(markdown.encode("utf-8")).hexdigest()
         db.execute(
             "INSERT OR REPLACE INTO site_sources(path, source_hash) VALUES (?, ?)",
-            (str(source.relative_to(ROOT)), digest),
+            (relative, digest),
         )
 
     for directory in sorted({path.parent for path in OUT.rglob("*.html")}):
@@ -170,10 +220,12 @@ def main() -> None:
         )
         if directory == OUT / "requirements":
             requirement_entries = []
-            for source in sorted((ROOT / "requirements").glob("*.md")):
-                for match in re.finditer(r"^## (DB-\d+) — (.+)$", source.read_text(encoding="utf-8"), re.M):
+            for relative, markdown in sources.items():
+                if not relative.startswith("requirements/"):
+                    continue
+                for match in re.finditer(r"^## ((?:REQ|DB)-\d+) — (.+)$", markdown, re.M):
                     requirement_entries.append(
-                        f'<li><a href="{source.stem}.html#{match.group(1).lower()}">{match.group(1)} — {html.escape(match.group(2))}</a></li>'
+                        f'<li><a href="{Path(relative).stem}.html#{match.group(1).lower()}">{match.group(1)} — {html.escape(match.group(2))}</a></li>'
                     )
             entries = entries + "\n" + "\n".join(requirement_entries)
         (directory / "index.html").write_text(
@@ -194,10 +246,12 @@ def main() -> None:
         + links + "</ul>",
         encoding="utf-8",
     )
-    print(f"Generated {len(markdown_files)} Markdown pages in {OUT.relative_to(ROOT)}/")
+    print(f"Generated {len(sources)} Markdown pages in {OUT.relative_to(ROOT)}/")
     db.commit()
     db.close()
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--status"]:
+        raise SystemExit(status())
     main()

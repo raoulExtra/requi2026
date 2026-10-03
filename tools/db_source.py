@@ -112,20 +112,35 @@ def _requirement_sources() -> list[tuple[Path, str, str]]:
     return result
 
 
+def _requirement_rows(text: str) -> list[tuple[str, str, str, str, str | None]]:
+    rows = []
+    matches = re.finditer(r"^## ((?:REQ|DB)-\d+) — (.+?)\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    for match in matches:
+        requirement_id, title, body = match.groups()
+        status = re.search(r"^- \*\*Status:\*\* ([^\n]+)$", body, re.M)
+        layer = re.search(r"^- \*\*Layer:\*\* ([^\n]+)$", body, re.M)
+        rows.append(
+            (
+                requirement_id,
+                title.strip(),
+                body.strip(),
+                status.group(1).strip() if status else "",
+                layer.group(1).strip() if layer else None,
+            )
+        )
+    return rows
+
+
 def _import_requirements(db: sqlite3.Connection) -> None:
     db.execute("DELETE FROM requirement_sources")
     db.execute("DELETE FROM requirements")
     for path, source_title, text in _requirement_sources():
         source = path.relative_to(ROOT).as_posix()
         db.execute("INSERT INTO requirement_sources(path, title) VALUES (?, ?)", (source, source_title))
-        matches = re.finditer(r"^## (DB-\d+) — (.+?)\n(.*?)(?=^## |\Z)", text, re.M | re.S)
-        for match in matches:
-            requirement_id, title, body = match.groups()
-            status = re.search(r"^- \*\*Status:\*\* ([^\n]+)$", body, re.M)
-            layer = re.search(r"^- \*\*Layer:\*\* ([^\n]+)$", body, re.M)
+        for requirement_id, title, body, status, layer_id in _requirement_rows(text):
             db.execute(
                 "INSERT INTO requirements(id, source, status, title, layer_id, body) VALUES (?, ?, ?, ?, ?, ?)",
-                (requirement_id, source, status.group(1).strip() if status else "", title.strip(), layer.group(1).strip() if layer else None, body.strip()),
+                (requirement_id, source, status, title, layer_id, body),
             )
 
 
@@ -218,14 +233,178 @@ def _requirement_markdown(db: sqlite3.Connection, source: str) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
+def database_markdown(db: sqlite3.Connection) -> dict[str, str]:
+    """Return generated Markdown projections without writing them to disk."""
+    ensure_schema(db)
+    sources: dict[str, str] = {}
+    for (path,) in db.execute("SELECT path FROM terms ORDER BY path"):
+        sources[path] = _term_markdown(db, path)
+    for (layer_id,) in db.execute("SELECT id FROM layers ORDER BY id"):
+        sources[f"layers/{layer_id}.md"] = _layer_markdown(db, layer_id)
+    for (source,) in db.execute("SELECT path FROM requirement_sources ORDER BY path"):
+        sources[source] = _requirement_markdown(db, source)
+    lexeme_rows = db.execute("SELECT id, lemma, language, category FROM lexemes ORDER BY lower(lemma), id").fetchall()
+    for lexeme_id, lemma, language, category in lexeme_rows:
+        sources[f"lexeme/{lexeme_id}.md"] = (
+            f"# {lemma}\n\n"
+            f"- **Wikidata Lexeme:** [{lexeme_id}](https://www.wikidata.org/wiki/{lexeme_id})\n"
+            f"- **Language:** {language}\n"
+            f"- **Lexical category:** {category}\n"
+        )
+    lexeme_entries = "\n".join(f"- [{lemma}]({lexeme_id}.md)" for lexeme_id, lemma, _, _ in lexeme_rows) or "(no lexemes yet)"
+    sources["lexeme/_lexeme.md"] = (
+        "# Lexemes (Wikidata)\n\n"
+        "One file per Wikidata Lexeme: `lexeme/L-#####.md`, linked from term files.\n"
+        "Populated from `requi.db`.\n\n"
+        "<!-- requi:begin lexeme -->\n"
+        f"{lexeme_entries}\n"
+        "<!-- requi:end -->\n"
+    )
+    layer_rows = "\n".join(
+        f"- [{title}]({layer_id}.md)"
+        for layer_id, title in db.execute("SELECT id, title FROM layers ORDER BY id")
+    ) or "(no layers yet)"
+    sources["layers/_layers.md"] = f"# Layers\n\n<!-- requi:begin layers -->\n{layer_rows}\n<!-- requi:end -->\n"
+    glossary_rows = ["| Term | One-liner | Terms (related) | Requirements |", "|---|---|---|---|"]
+    for path, name, definition in db.execute("SELECT path, name, definition FROM terms ORDER BY lower(name)"):
+        related = ", ".join(
+            f"[{Path(target).stem}]({target})"
+            for (target,) in db.execute(
+                "SELECT related_path FROM term_related WHERE term_path = ? ORDER BY related_path", (path,)
+            )
+        )
+        requirements = ", ".join(
+            f"[{req_id}](requirements.md#{req_id.lower()})"
+            for (req_id,) in db.execute(
+                "SELECT requirement_id FROM term_requirements WHERE term_path = ? ORDER BY requirement_id", (path,)
+            )
+        )
+        glossary_rows.append(f"| [{name}]({path}) | {definition} | {related} | {requirements} |")
+    sources["glossary.md"] = f"# Glossary\n\n<!-- requi:begin glossary -->\n{chr(10).join(glossary_rows)}\n<!-- requi:end -->\n"
+    requirement_rows = "\n".join(
+        f"- [{req_id} — {title}]({source}#{req_id.lower()})"
+        for req_id, title, source in db.execute("SELECT id, title, source FROM requirements ORDER BY id")
+    ) or "(no requirements yet)"
+    sources["requirements.md"] = f"# Requirements\n\n<!-- requi:begin requirements -->\n{requirement_rows}\n<!-- requi:end -->\n"
+    return sources
+
+
+def markdown_database_differences(db: sqlite3.Connection) -> list[str]:
+    """Find semantic Markdown content that is absent from or differs from SQLite."""
+    errors: list[str] = []
+
+    db_term_paths = {path for (path,) in db.execute("SELECT path FROM terms")}
+    md_term_paths = {
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "terms").glob("*.md")
+    }
+    for relative in sorted(md_term_paths - db_term_paths):
+        errors.append(f"{relative}: Markdown term is absent from SQLite")
+    for relative in sorted(db_term_paths - md_term_paths):
+        errors.append(f"{relative}: SQLite term has no Markdown projection")
+    for relative in sorted(md_term_paths & db_term_paths):
+        markdown = _term_row(ROOT / relative)
+        row = db.execute(
+            "SELECT name, definition, wikidata_id, lexeme_id, lexeme_pending FROM terms WHERE path = ?",
+            (relative,),
+        ).fetchone()
+        db_term = dict(zip(("name", "definition", "wikidata_id", "lexeme_id", "lexeme_pending"), row))
+        for field in ("name", "definition", "wikidata_id", "lexeme_id", "lexeme_pending"):
+            if markdown[field] != db_term[field]:
+                errors.append(f"{relative}: {field} differs between Markdown and SQLite")
+        for field, query in (
+            ("layers", "SELECT layer_id FROM term_layers WHERE term_path = ?"),
+            ("related", "SELECT related_path FROM term_related WHERE term_path = ?"),
+            ("requirements", "SELECT requirement_id FROM term_requirements WHERE term_path = ?"),
+        ):
+            markdown_values = set(markdown[field])
+            db_values = {value for (value,) in db.execute(query, (relative,))}
+            if markdown_values != db_values:
+                errors.append(f"{relative}: {field} differs between Markdown and SQLite")
+
+    db_layer_ids = {layer_id for (layer_id,) in db.execute("SELECT id FROM layers")}
+    md_layers = {
+        path.stem: path
+        for path in (ROOT / "layers").glob("*.md")
+        if path.name != "_layers.md"
+    }
+    for layer_id in sorted(set(md_layers) - db_layer_ids):
+        errors.append(f"layers/{layer_id}.md: Markdown layer is absent from SQLite")
+    for layer_id in sorted(db_layer_ids - set(md_layers)):
+        errors.append(f"layers/{layer_id}.md: SQLite layer has no Markdown projection")
+    for layer_id in sorted(db_layer_ids & set(md_layers)):
+        markdown = _layer_row(md_layers[layer_id])
+        row = db.execute("SELECT title, description FROM layers WHERE id = ?", (layer_id,)).fetchone()
+        if markdown["title"] != row[0]:
+            errors.append(f"layers/{layer_id}.md: title differs between Markdown and SQLite")
+        if markdown["description"] != row[1]:
+            errors.append(f"layers/{layer_id}.md: description differs between Markdown and SQLite")
+
+    markdown_sources = {
+        path.relative_to(ROOT).as_posix(): (title, text)
+        for path, title, text in _requirement_sources()
+    }
+    db_sources = {
+        path: title
+        for path, title in db.execute("SELECT path, title FROM requirement_sources")
+    }
+    for source in sorted(set(markdown_sources) - set(db_sources)):
+        errors.append(f"{source}: Markdown requirement source is absent from SQLite")
+    for source in sorted(set(db_sources) - set(markdown_sources)):
+        errors.append(f"{source}: SQLite requirement source has no Markdown projection")
+    for source in sorted(set(markdown_sources) & set(db_sources)):
+        markdown_title, markdown_text = markdown_sources[source]
+        if markdown_title != db_sources[source]:
+            errors.append(f"{source}: title differs between Markdown and SQLite")
+        markdown_requirements = {
+            requirement_id: (title, status, layer_id, body)
+            for requirement_id, title, body, status, layer_id in _requirement_rows(markdown_text)
+        }
+        db_requirements = {
+            requirement_id: (title, status, layer_id, body)
+            for requirement_id, title, status, layer_id, body in db.execute(
+                "SELECT id, title, status, layer_id, body FROM requirements WHERE source = ?",
+                (source,),
+            )
+        }
+        for requirement_id in sorted(set(markdown_requirements) - set(db_requirements)):
+            errors.append(f"{source}#{requirement_id}: Markdown requirement is absent from SQLite")
+        for requirement_id in sorted(set(db_requirements) - set(markdown_requirements)):
+            errors.append(f"{source}#{requirement_id}: SQLite requirement has no Markdown projection")
+        for requirement_id in sorted(set(markdown_requirements) & set(db_requirements)):
+            if markdown_requirements[requirement_id] != db_requirements[requirement_id]:
+                errors.append(f"{source}#{requirement_id}: fields differ between Markdown and SQLite")
+
+    db_lexemes = {
+        lexeme_id: (lemma, language, category)
+        for lexeme_id, lemma, language, category in db.execute(
+            "SELECT id, lemma, language, category FROM lexemes"
+        )
+    }
+    md_lexemes = {}
+    for path in (ROOT / "lexeme").glob("L*.md"):
+        text = path.read_text(encoding="utf-8")
+        language = re.search(r"^- \*\*Language:\*\* ([^\n]+)$", text, re.M)
+        category = re.search(r"^- \*\*Lexical category:\*\* ([^\n]+)$", text, re.M)
+        md_lexemes[path.stem] = (_title(text), language.group(1).strip() if language else "", category.group(1).strip() if category else "")
+    for lexeme_id in sorted(set(md_lexemes) - set(db_lexemes)):
+        errors.append(f"lexeme/{lexeme_id}.md: Markdown lexeme is absent from SQLite")
+    for lexeme_id in sorted(set(db_lexemes) - set(md_lexemes)):
+        errors.append(f"lexeme/{lexeme_id}.md: SQLite lexeme has no Markdown projection")
+    for lexeme_id in sorted(set(md_lexemes) & set(db_lexemes)):
+        if md_lexemes[lexeme_id] != db_lexemes[lexeme_id]:
+            errors.append(f"lexeme/{lexeme_id}.md: fields differ between Markdown and SQLite")
+    return errors
+
+
 def render_database(db: sqlite3.Connection | None = None) -> None:
     owns_db = db is None
     db = db or sqlite3.connect(ROOT / "requi.db")
-    ensure_schema(db)
-    expected_terms = {ROOT / path for (path,) in db.execute("SELECT path FROM terms")}
-    expected_layers = {ROOT / "layers" / f"{layer_id}.md" for (layer_id,) in db.execute("SELECT id FROM layers")}
-    expected_requirements = {ROOT / path for (path,) in db.execute("SELECT path FROM requirement_sources")}
-    expected_lexemes = {ROOT / "lexeme" / f"{lexeme_id}.md" for (lexeme_id,) in db.execute("SELECT id FROM lexemes")}
+    sources = database_markdown(db)
+    expected_terms = {ROOT / path for path in sources if path.startswith("terms/")}
+    expected_layers = {ROOT / path for path in sources if path.startswith("layers/") and path != "layers/_layers.md"}
+    expected_requirements = {ROOT / path for path in sources if path.startswith("requirements/")}
+    expected_lexemes = {ROOT / path for path in sources if path.startswith("lexeme/L")}
     for path in (ROOT / "terms").glob("*.md"):
         if path not in expected_terms:
             path.unlink()
@@ -238,36 +417,10 @@ def render_database(db: sqlite3.Connection | None = None) -> None:
     for path in (ROOT / "lexeme").glob("L*.md"):
         if path not in expected_lexemes:
             path.unlink()
-    for (path,) in db.execute("SELECT path FROM terms ORDER BY path"):
-        target = ROOT / path
+    for relative, content in sources.items():
+        target = ROOT / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(_term_markdown(db, path), encoding="utf-8")
-    for (layer_id,) in db.execute("SELECT id FROM layers ORDER BY id"):
-        (ROOT / "layers" / f"{layer_id}.md").write_text(_layer_markdown(db, layer_id), encoding="utf-8")
-    for source, in db.execute("SELECT path FROM requirement_sources ORDER BY path"):
-        target = ROOT / source
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(_requirement_markdown(db, source), encoding="utf-8")
-    lexeme_rows = db.execute("SELECT id, lemma, language, category FROM lexemes ORDER BY lower(lemma), id").fetchall()
-    for lexeme_id, lemma, language, category in lexeme_rows:
-        (ROOT / "lexeme" / f"{lexeme_id}.md").write_text(
-            f"# {lemma}\n\n- **Wikidata Lexeme:** [{lexeme_id}](https://www.wikidata.org/wiki/{lexeme_id})\n- **Language:** {language}\n- **Lexical category:** {category}\n",
-            encoding="utf-8",
-        )
-    lexeme_entries = "\n".join(f"- [{lemma}]({lexeme_id}.md)" for lexeme_id, lemma, _, _ in lexeme_rows) or "(no lexemes yet)"
-    lexeme_index = ROOT / "lexeme" / "_lexeme.md"
-    lexeme_index.write_text(f"# Lexemes (Wikidata)\n\nOne file per Wikidata Lexeme: `lexeme/L-#####.md`, linked from term files.\nPopulated from `requi.db`.\n\n<!-- requi:begin lexeme -->\n{lexeme_entries}\n<!-- requi:end -->\n", encoding="utf-8")
-    layer_rows = "\n".join(f"- [{title}]({layer_id}.md)" for layer_id, title in db.execute("SELECT id, title FROM layers ORDER BY id")) or "(no layers yet)"
-    (ROOT / "layers" / "_layers.md").write_text(f"# Layers\n\n<!-- requi:begin layers -->\n{layer_rows}\n<!-- requi:end -->\n", encoding="utf-8")
-    glossary_rows = ["| Term | One-liner | Terms (related) | Requirements |", "|---|---|---|---|"]
-    for path, name, definition in db.execute("SELECT path, name, definition FROM terms ORDER BY lower(name)"):
-        related = ", ".join(f"[{Path(target).stem}]({target})" for (target,) in db.execute("SELECT related_path FROM term_related WHERE term_path = ? ORDER BY related_path", (path,)))
-        requirements = ", ".join(f"[{req_id}](requirements.md#{req_id.lower()})" for (req_id,) in db.execute("SELECT requirement_id FROM term_requirements WHERE term_path = ? ORDER BY requirement_id", (path,)))
-        glossary_rows.append(f"| [{name}]({path}) | {definition} | {related} | {requirements} |")
-    glossary = ROOT / "glossary.md"
-    glossary.write_text(f"# Glossary\n\n<!-- requi:begin glossary -->\n{chr(10).join(glossary_rows)}\n<!-- requi:end -->\n", encoding="utf-8")
-    requirement_rows = "\n".join(f"- [{req_id} — {title}]({source}#{req_id.lower()})" for req_id, title, source in db.execute("SELECT id, title, source FROM requirements ORDER BY id")) or "(no requirements yet)"
-    (ROOT / "requirements.md").write_text(f"# Requirements\n\n<!-- requi:begin requirements -->\n{requirement_rows}\n<!-- requi:end -->\n", encoding="utf-8")
+        target.write_text(content, encoding="utf-8")
     if owns_db:
         db.commit()
         db.close()
