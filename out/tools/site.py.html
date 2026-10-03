@@ -1,0 +1,351 @@
+<!doctype html><meta charset="utf-8"><title>tools/site.py — Requi</title><style>body{font:16px/1.6 system-ui,sans-serif;max-width:100rem;margin:0 auto;padding:2rem 1.25rem;background:#10141c;color:#e8edf5}a{color:#72b7ff}.requirement-list{margin-top:0}.requirement-list li{margin:.15rem 0}pre{font-size:8px;line-height:1.5;overflow:auto;background:#171d28;padding:1rem;border-radius:8px}.line{display:block}.line-number{display:inline-block;width:4rem;color:#8492a6;user-select:none}.requirements{margin-left:1rem}</style><h1>tools/site.py</h1><p>Converts Markdown and database projections into HTML pages and records source hashes for freshness checks.</p><h2>Requirements in this file</h2><ul class="requirement-list"><li><a href="#L161">DB-004</a> — Track generated HTML freshness</li></ul><p>Requirement comments link to the corresponding acceptance criterion.</p><pre><code><span id="L1" class="line"><span class="line-number">0001</span> #!/usr/bin/env python3</span>
+<span id="L2" class="line"><span class="line-number">0002</span> &quot;&quot;&quot;Render SQLite-backed entities and Markdown sources into a self-contained HTML site.&quot;&quot;&quot;</span>
+<span id="L3" class="line"><span class="line-number">0003</span> from __future__ import annotations</span>
+<span id="L4" class="line"><span class="line-number">0004</span> </span>
+<span id="L5" class="line"><span class="line-number">0005</span> import hashlib</span>
+<span id="L6" class="line"><span class="line-number">0006</span> import html</span>
+<span id="L7" class="line"><span class="line-number">0007</span> import re</span>
+<span id="L8" class="line"><span class="line-number">0008</span> import sqlite3</span>
+<span id="L9" class="line"><span class="line-number">0009</span> import sys</span>
+<span id="L10" class="line"><span class="line-number">0010</span> from pathlib import Path</span>
+<span id="L11" class="line"><span class="line-number">0011</span> from db_source import database_markdown</span>
+<span id="L12" class="line"><span class="line-number">0012</span> </span>
+<span id="L13" class="line"><span class="line-number">0013</span> ROOT = Path(__file__).resolve().parents[1]</span>
+<span id="L14" class="line"><span class="line-number">0014</span> OUT = ROOT / &quot;out&quot;</span>
+<span id="L15" class="line"><span class="line-number">0015</span> LINK = re.compile(r&quot;\[([^]]+)\]\(([^)]+)\)&quot;)</span>
+<span id="L16" class="line"><span class="line-number">0016</span> </span>
+<span id="L17" class="line"><span class="line-number">0017</span> </span>
+<span id="L18" class="line"><span class="line-number">0018</span> def href(target: str, source: Path) -&gt; str:</span>
+<span id="L19" class="line"><span class="line-number">0019</span>     if target.startswith((&quot;http://&quot;, &quot;https://&quot;, &quot;#&quot;, &quot;mailto:&quot;)):</span>
+<span id="L20" class="line"><span class="line-number">0020</span>         return target</span>
+<span id="L21" class="line"><span class="line-number">0021</span>     anchor = &quot;&quot;</span>
+<span id="L22" class="line"><span class="line-number">0022</span>     if &quot;#&quot; in target:</span>
+<span id="L23" class="line"><span class="line-number">0023</span>         target, anchor = target.split(&quot;#&quot;, 1)</span>
+<span id="L24" class="line"><span class="line-number">0024</span>     resolved = (source.parent / target).resolve()</span>
+<span id="L25" class="line"><span class="line-number">0025</span>     target_rel = resolved.relative_to(ROOT)</span>
+<span id="L26" class="line"><span class="line-number">0026</span>     target_rel = (target_rel / &quot;index.html&quot;) if target.endswith(&quot;/&quot;) else target_rel.with_suffix(&quot;.html&quot;) if target.endswith(&quot;.md&quot;) else target_rel</span>
+<span id="L27" class="line"><span class="line-number">0027</span>     source_rel = source.relative_to(ROOT)</span>
+<span id="L28" class="line"><span class="line-number">0028</span>     return Path(__import__(&quot;os&quot;).path.relpath(target_rel, source_rel.parent)).as_posix() + (f&quot;#{anchor}&quot; if anchor else &quot;&quot;)</span>
+<span id="L29" class="line"><span class="line-number">0029</span> def inline(text: str, source: Path) -&gt; str:</span>
+<span id="L30" class="line"><span class="line-number">0030</span>     escaped = html.escape(text, quote=False)</span>
+<span id="L31" class="line"><span class="line-number">0031</span>     placeholders: list[str] = []</span>
+<span id="L32" class="line"><span class="line-number">0032</span> </span>
+<span id="L33" class="line"><span class="line-number">0033</span>     def replace(match: re.Match[str]) -&gt; str:</span>
+<span id="L34" class="line"><span class="line-number">0034</span>         label, target = match.groups()</span>
+<span id="L35" class="line"><span class="line-number">0035</span>         token = f&quot;\x00{len(placeholders)}\x00&quot;</span>
+<span id="L36" class="line"><span class="line-number">0036</span>         placeholders.append(f&#x27;&lt;a href=&quot;{html.escape(href(target, source), quote=True)}&quot;&gt;{html.escape(label)}&lt;/a&gt;&#x27;)</span>
+<span id="L37" class="line"><span class="line-number">0037</span>         return token</span>
+<span id="L38" class="line"><span class="line-number">0038</span> </span>
+<span id="L39" class="line"><span class="line-number">0039</span>     escaped = LINK.sub(replace, escaped)</span>
+<span id="L40" class="line"><span class="line-number">0040</span>     escaped = re.sub(r&quot;`([^`]+)`&quot;, r&quot;&lt;code&gt;\1&lt;/code&gt;&quot;, escaped)</span>
+<span id="L41" class="line"><span class="line-number">0041</span>     escaped = re.sub(r&quot;\*\*([^*]+)\*\*&quot;, r&quot;&lt;strong&gt;\1&lt;/strong&gt;&quot;, escaped)</span>
+<span id="L42" class="line"><span class="line-number">0042</span>     for index, value in enumerate(placeholders):</span>
+<span id="L43" class="line"><span class="line-number">0043</span>         escaped = escaped.replace(f&quot;\x00{index}\x00&quot;, value)</span>
+<span id="L44" class="line"><span class="line-number">0044</span>     return escaped</span>
+<span id="L45" class="line"><span class="line-number">0045</span> </span>
+<span id="L46" class="line"><span class="line-number">0046</span> </span>
+<span id="L47" class="line"><span class="line-number">0047</span> def render(markdown: str, source: Path) -&gt; str:</span>
+<span id="L48" class="line"><span class="line-number">0048</span>     lines = markdown.splitlines()</span>
+<span id="L49" class="line"><span class="line-number">0049</span>     output: list[str] = []</span>
+<span id="L50" class="line"><span class="line-number">0050</span>     in_code = False</span>
+<span id="L51" class="line"><span class="line-number">0051</span>     paragraph: list[str] = []</span>
+<span id="L52" class="line"><span class="line-number">0052</span>     list_open = False</span>
+<span id="L53" class="line"><span class="line-number">0053</span>     table_rows: list[list[str]] = []</span>
+<span id="L54" class="line"><span class="line-number">0054</span> </span>
+<span id="L55" class="line"><span class="line-number">0055</span>     def flush_paragraph() -&gt; None:</span>
+<span id="L56" class="line"><span class="line-number">0056</span>         nonlocal paragraph</span>
+<span id="L57" class="line"><span class="line-number">0057</span>         if paragraph:</span>
+<span id="L58" class="line"><span class="line-number">0058</span>             output.append(f&quot;&lt;p&gt;{inline(&#x27; &#x27;.join(paragraph), source)}&lt;/p&gt;&quot;)</span>
+<span id="L59" class="line"><span class="line-number">0059</span>             paragraph = []</span>
+<span id="L60" class="line"><span class="line-number">0060</span> </span>
+<span id="L61" class="line"><span class="line-number">0061</span>     def close_list() -&gt; None:</span>
+<span id="L62" class="line"><span class="line-number">0062</span>         nonlocal list_open</span>
+<span id="L63" class="line"><span class="line-number">0063</span>         if list_open:</span>
+<span id="L64" class="line"><span class="line-number">0064</span>             output.append(&quot;&lt;/ul&gt;&quot;)</span>
+<span id="L65" class="line"><span class="line-number">0065</span>             list_open = False</span>
+<span id="L66" class="line"><span class="line-number">0066</span> </span>
+<span id="L67" class="line"><span class="line-number">0067</span>     def close_table() -&gt; None:</span>
+<span id="L68" class="line"><span class="line-number">0068</span>         nonlocal table_rows</span>
+<span id="L69" class="line"><span class="line-number">0069</span>         if not table_rows:</span>
+<span id="L70" class="line"><span class="line-number">0070</span>             return</span>
+<span id="L71" class="line"><span class="line-number">0071</span>         output.append(&quot;&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&quot; + &quot;&quot;.join(f&quot;&lt;th&gt;{inline(cell, source)}&lt;/th&gt;&quot; for cell in table_rows[0]) + &quot;&lt;/tr&gt;&lt;/thead&gt;&lt;tbody&gt;&quot;)</span>
+<span id="L72" class="line"><span class="line-number">0072</span>         for row in table_rows[1:]:</span>
+<span id="L73" class="line"><span class="line-number">0073</span>             output.append(&quot;&lt;tr&gt;&quot; + &quot;&quot;.join(f&quot;&lt;td&gt;{inline(cell, source)}&lt;/td&gt;&quot; for cell in row) + &quot;&lt;/tr&gt;&quot;)</span>
+<span id="L74" class="line"><span class="line-number">0074</span>         output.append(&quot;&lt;/tbody&gt;&lt;/table&gt;&quot;)</span>
+<span id="L75" class="line"><span class="line-number">0075</span>         table_rows = []</span>
+<span id="L76" class="line"><span class="line-number">0076</span> </span>
+<span id="L77" class="line"><span class="line-number">0077</span>     for line in lines:</span>
+<span id="L78" class="line"><span class="line-number">0078</span>         if line.startswith(&quot;```&quot;):</span>
+<span id="L79" class="line"><span class="line-number">0079</span>             flush_paragraph()</span>
+<span id="L80" class="line"><span class="line-number">0080</span>             close_list()</span>
+<span id="L81" class="line"><span class="line-number">0081</span>             close_table()</span>
+<span id="L82" class="line"><span class="line-number">0082</span>             output.append(&quot;&lt;/code&gt;&lt;/pre&gt;&quot; if in_code else &quot;&lt;pre&gt;&lt;code&gt;&quot;)</span>
+<span id="L83" class="line"><span class="line-number">0083</span>             in_code = not in_code</span>
+<span id="L84" class="line"><span class="line-number">0084</span>             continue</span>
+<span id="L85" class="line"><span class="line-number">0085</span>         if in_code:</span>
+<span id="L86" class="line"><span class="line-number">0086</span>             output.append(html.escape(line) + &quot;\n&quot;)</span>
+<span id="L87" class="line"><span class="line-number">0087</span>             continue</span>
+<span id="L88" class="line"><span class="line-number">0088</span>         if line.strip().startswith(&quot;|&quot;) and line.strip().endswith(&quot;|&quot;):</span>
+<span id="L89" class="line"><span class="line-number">0089</span>             flush_paragraph()</span>
+<span id="L90" class="line"><span class="line-number">0090</span>             close_list()</span>
+<span id="L91" class="line"><span class="line-number">0091</span>             cells = [cell.strip() for cell in line.strip().strip(&quot;|&quot;).split(&quot;|&quot;)]</span>
+<span id="L92" class="line"><span class="line-number">0092</span>             if not all(re.fullmatch(r&quot;:?-+:?&quot;, cell) for cell in cells):</span>
+<span id="L93" class="line"><span class="line-number">0093</span>                 table_rows.append(cells)</span>
+<span id="L94" class="line"><span class="line-number">0094</span>             continue</span>
+<span id="L95" class="line"><span class="line-number">0095</span>         close_table()</span>
+<span id="L96" class="line"><span class="line-number">0096</span>         heading = re.match(r&quot;^(#{1,6})\s+(.+)$&quot;, line)</span>
+<span id="L97" class="line"><span class="line-number">0097</span>         item = re.match(r&quot;^\s*[-*]\s+(.+)$&quot;, line)</span>
+<span id="L98" class="line"><span class="line-number">0098</span>         quote = re.match(r&quot;^\s*&gt;\s*(.*)$&quot;, line)</span>
+<span id="L99" class="line"><span class="line-number">0099</span>         if heading:</span>
+<span id="L100" class="line"><span class="line-number">0100</span>             flush_paragraph()</span>
+<span id="L101" class="line"><span class="line-number">0101</span>             close_list()</span>
+<span id="L102" class="line"><span class="line-number">0102</span>             level = len(heading.group(1))</span>
+<span id="L103" class="line"><span class="line-number">0103</span>             heading_text = heading.group(2)</span>
+<span id="L104" class="line"><span class="line-number">0104</span>             heading_id = heading_text.split(&quot; — &quot;, 1)[0].lower() if heading_text.startswith(&quot;DB-&quot;) else re.sub(r&quot;[^a-z0-9]+&quot;, &quot;-&quot;, heading_text.lower()).strip(&quot;-&quot;)</span>
+<span id="L105" class="line"><span class="line-number">0105</span>             output.append(f&#x27;&lt;h{level} id=&quot;{heading_id}&quot;&gt;{inline(heading_text, source)}&lt;/h{level}&gt;&#x27;)</span>
+<span id="L106" class="line"><span class="line-number">0106</span>         elif item:</span>
+<span id="L107" class="line"><span class="line-number">0107</span>             flush_paragraph()</span>
+<span id="L108" class="line"><span class="line-number">0108</span>             if not list_open:</span>
+<span id="L109" class="line"><span class="line-number">0109</span>                 output.append(&quot;&lt;ul&gt;&quot;)</span>
+<span id="L110" class="line"><span class="line-number">0110</span>                 list_open = True</span>
+<span id="L111" class="line"><span class="line-number">0111</span>             output.append(f&quot;&lt;li&gt;{inline(item.group(1), source)}&lt;/li&gt;&quot;)</span>
+<span id="L112" class="line"><span class="line-number">0112</span>         elif quote:</span>
+<span id="L113" class="line"><span class="line-number">0113</span>             flush_paragraph()</span>
+<span id="L114" class="line"><span class="line-number">0114</span>             close_list()</span>
+<span id="L115" class="line"><span class="line-number">0115</span>             output.append(f&quot;&lt;blockquote&gt;{inline(quote.group(1), source)}&lt;/blockquote&gt;&quot;)</span>
+<span id="L116" class="line"><span class="line-number">0116</span>         elif line.strip():</span>
+<span id="L117" class="line"><span class="line-number">0117</span>             close_list()</span>
+<span id="L118" class="line"><span class="line-number">0118</span>             paragraph.append(line.strip())</span>
+<span id="L119" class="line"><span class="line-number">0119</span>         else:</span>
+<span id="L120" class="line"><span class="line-number">0120</span>             flush_paragraph()</span>
+<span id="L121" class="line"><span class="line-number">0121</span>             close_list()</span>
+<span id="L122" class="line"><span class="line-number">0122</span>     flush_paragraph()</span>
+<span id="L123" class="line"><span class="line-number">0123</span>     close_list()</span>
+<span id="L124" class="line"><span class="line-number">0124</span>     close_table()</span>
+<span id="L125" class="line"><span class="line-number">0125</span>     return &quot;\n&quot;.join(output)</span>
+<span id="L126" class="line"><span class="line-number">0126</span> </span>
+<span id="L127" class="line"><span class="line-number">0127</span> </span>
+<span id="L128" class="line"><span class="line-number">0128</span> def page(title: str, body: str, source: Path) -&gt; str:</span>
+<span id="L129" class="line"><span class="line-number">0129</span>     home = Path(__import__(&quot;os&quot;).path.relpath(&quot;_HOME.html&quot;, source.relative_to(ROOT).parent)).as_posix()</span>
+<span id="L130" class="line"><span class="line-number">0130</span>     return f&#x27;&#x27;&#x27;&lt;!doctype html&gt;</span>
+<span id="L131" class="line"><span class="line-number">0131</span> &lt;meta charset=&quot;utf-8&quot;&gt;</span>
+<span id="L132" class="line"><span class="line-number">0132</span> &lt;title&gt;{html.escape(title)} — Requi&lt;/title&gt;</span>
+<span id="L133" class="line"><span class="line-number">0133</span> &lt;style&gt;:root{{color-scheme:light dark}}body{{font:16px/1.6 system-ui,sans-serif;max-width:72rem;margin:0 auto;padding:2rem 1.25rem;background:#10141c;color:#e8edf5}}main{{background:#171d28;border:1px solid #2c3748;border-radius:14px;padding:2rem}}nav{{margin-bottom:1rem}}a{{color:#72b7ff}}h1,h2,h3{{line-height:1.2;color:#fff}}pre{{background:#0b0e13;border:1px solid #2c3748;border-radius:8px;padding:1rem;overflow:auto}}code{{background:#0b0e13;padding:.15rem .35rem;border-radius:4px}}table{{width:100%;border-collapse:collapse;margin:1rem 0}}td,th{{border:1px solid #3a4658;padding:.6rem;text-align:left}}th{{background:#222c3b}}blockquote{{border-left:4px solid #72b7ff;margin:1rem 0;padding:.25rem 1rem;color:#b8c4d6}}&lt;/style&gt;</span>
+<span id="L134" class="line"><span class="line-number">0134</span> &lt;nav&gt;&lt;a href=&quot;{home}&quot;&gt;Project Requi home&lt;/a&gt;&lt;/nav&gt;</span>
+<span id="L135" class="line"><span class="line-number">0135</span> &lt;main&gt;{body}&lt;/main&gt;</span>
+<span id="L136" class="line"><span class="line-number">0136</span> &#x27;&#x27;&#x27;</span>
+<span id="L137" class="line"><span class="line-number">0137</span> </span>
+<span id="L138" class="line"><span class="line-number">0138</span> def _is_database_projection(relative: str) -&gt; bool:</span>
+<span id="L139" class="line"><span class="line-number">0139</span>     path = Path(relative)</span>
+<span id="L140" class="line"><span class="line-number">0140</span>     return relative in {&quot;glossary.md&quot;, &quot;requirements.md&quot;} or path.parts[:1] in {</span>
+<span id="L141" class="line"><span class="line-number">0141</span>         (&quot;terms&quot;,),</span>
+<span id="L142" class="line"><span class="line-number">0142</span>         (&quot;scopes&quot;,),</span>
+<span id="L143" class="line"><span class="line-number">0143</span>         (&quot;layers&quot;,),</span>
+<span id="L144" class="line"><span class="line-number">0144</span>         (&quot;requirements&quot;,),</span>
+<span id="L145" class="line"><span class="line-number">0145</span>         (&quot;lexemes&quot;,),</span>
+<span id="L146" class="line"><span class="line-number">0146</span>     }</span>
+<span id="L147" class="line"><span class="line-number">0147</span> </span>
+<span id="L148" class="line"><span class="line-number">0148</span> </span>
+<span id="L149" class="line"><span class="line-number">0149</span> def markdown_sources(db: sqlite3.Connection) -&gt; dict[str, str]:</span>
+<span id="L150" class="line"><span class="line-number">0150</span>     &quot;&quot;&quot;Return static Markdown plus SQLite-backed projections for site rendering.&quot;&quot;&quot;</span>
+<span id="L151" class="line"><span class="line-number">0151</span>     sources = {</span>
+<span id="L152" class="line"><span class="line-number">0152</span>         str(path.relative_to(ROOT)): path.read_text(encoding=&quot;utf-8&quot;)</span>
+<span id="L153" class="line"><span class="line-number">0153</span>         for path in ROOT.rglob(&quot;*.md&quot;)</span>
+<span id="L154" class="line"><span class="line-number">0154</span>         if OUT not in path.parents and &quot;.git&quot; not in path.parts</span>
+<span id="L155" class="line"><span class="line-number">0155</span>         and not _is_database_projection(str(path.relative_to(ROOT)))</span>
+<span id="L156" class="line"><span class="line-number">0156</span>     }</span>
+<span id="L157" class="line"><span class="line-number">0157</span>     sources.update(database_markdown(db))</span>
+<span id="L158" class="line"><span class="line-number">0158</span>     return dict(sorted(sources.items()))</span>
+<span id="L159" class="line"><span class="line-number">0159</span> </span>
+<span id="L160" class="line"><span class="line-number">0160</span> </span>
+<span id="L161" class="line"><span class="line-number">0161</span> # REQUI: DB-004<span class="requirements"> ← <a href="../requirements/db.html#db-004">DB-004</a></span></span>
+<span id="L162" class="line"><span class="line-number">0162</span> def status() -&gt; int:</span>
+<span id="L163" class="line"><span class="line-number">0163</span>     db = sqlite3.connect(ROOT / &quot;requi.db&quot;)</span>
+<span id="L164" class="line"><span class="line-number">0164</span>     try:</span>
+<span id="L165" class="line"><span class="line-number">0165</span>         rows = db.execute(&quot;SELECT path, source_hash FROM site_sources&quot;).fetchall()</span>
+<span id="L166" class="line"><span class="line-number">0166</span>     except sqlite3.OperationalError:</span>
+<span id="L167" class="line"><span class="line-number">0167</span>         db.close()</span>
+<span id="L168" class="line"><span class="line-number">0168</span>         print(&quot;STALE: site has never been generated&quot;)</span>
+<span id="L169" class="line"><span class="line-number">0169</span>         return 1</span>
+<span id="L170" class="line"><span class="line-number">0170</span>     current = markdown_sources(db)</span>
+<span id="L171" class="line"><span class="line-number">0171</span>     current_hashes = {</span>
+<span id="L172" class="line"><span class="line-number">0172</span>         relative: hashlib.sha256(content.encode(&quot;utf-8&quot;)).hexdigest()</span>
+<span id="L173" class="line"><span class="line-number">0173</span>         for relative, content in current.items()</span>
+<span id="L174" class="line"><span class="line-number">0174</span>     }</span>
+<span id="L175" class="line"><span class="line-number">0175</span>     recorded = {relative: source_hash for relative, source_hash in rows}</span>
+<span id="L176" class="line"><span class="line-number">0176</span>     stale = sorted(set(current_hashes) - set(recorded))</span>
+<span id="L177" class="line"><span class="line-number">0177</span>     for relative, source_hash in recorded.items():</span>
+<span id="L178" class="line"><span class="line-number">0178</span>         generated = OUT / Path(relative).with_suffix(&quot;.html&quot;)</span>
+<span id="L179" class="line"><span class="line-number">0179</span>         if current_hashes.get(relative) != source_hash or not generated.exists():</span>
+<span id="L180" class="line"><span class="line-number">0180</span>             stale.append(relative)</span>
+<span id="L181" class="line"><span class="line-number">0181</span>     db.close()</span>
+<span id="L182" class="line"><span class="line-number">0182</span>     if stale:</span>
+<span id="L183" class="line"><span class="line-number">0183</span>         print(&quot;STALE: run python3 tools/site.py&quot;)</span>
+<span id="L184" class="line"><span class="line-number">0184</span>         print(&quot;\n&quot;.join(f&quot;- {path}&quot; for path in sorted(set(stale))))</span>
+<span id="L185" class="line"><span class="line-number">0185</span>         return 1</span>
+<span id="L186" class="line"><span class="line-number">0186</span>     print(&quot;HTML CURRENT&quot;)</span>
+<span id="L187" class="line"><span class="line-number">0187</span>     return 0</span>
+<span id="L188" class="line"><span class="line-number">0188</span> </span>
+<span id="L189" class="line"><span class="line-number">0189</span> </span>
+<span id="L190" class="line"><span class="line-number">0190</span> </span>
+<span id="L191" class="line"><span class="line-number">0191</span> def render_python_sources(db: sqlite3.Connection) -&gt; None:</span>
+<span id="L192" class="line"><span class="line-number">0192</span>     rows = db.execute(</span>
+<span id="L193" class="line"><span class="line-number">0193</span>         &quot;SELECT DISTINCT path FROM code_python_requirements ORDER BY path&quot;</span>
+<span id="L194" class="line"><span class="line-number">0194</span>     ).fetchall()</span>
+<span id="L195" class="line"><span class="line-number">0195</span>     for (relative,) in rows:</span>
+<span id="L196" class="line"><span class="line-number">0196</span>         source = ROOT / relative</span>
+<span id="L197" class="line"><span class="line-number">0197</span>         destination = OUT / f&quot;{relative}.html&quot;</span>
+<span id="L198" class="line"><span class="line-number">0198</span>         destination.parent.mkdir(parents=True, exist_ok=True)</span>
+<span id="L199" class="line"><span class="line-number">0199</span>         annotations: dict[int, list[tuple[str, str]]] = {}</span>
+<span id="L200" class="line"><span class="line-number">0200</span>         requirement_lines: dict[str, tuple[int, str]] = {}</span>
+<span id="L201" class="line"><span class="line-number">0201</span>         for line, requirement_id, requirement_source, requirement_title in db.execute(</span>
+<span id="L202" class="line"><span class="line-number">0202</span>             &quot;SELECT c.line, c.requirement_id, r.source, r.title &quot;</span>
+<span id="L203" class="line"><span class="line-number">0203</span>             &quot;FROM code_python_requirements AS c &quot;</span>
+<span id="L204" class="line"><span class="line-number">0204</span>             &quot;JOIN requirements AS r ON r.id = c.requirement_id &quot;</span>
+<span id="L205" class="line"><span class="line-number">0205</span>             &quot;WHERE c.path = ? ORDER BY c.line, c.requirement_id&quot;,</span>
+<span id="L206" class="line"><span class="line-number">0206</span>             (relative,),</span>
+<span id="L207" class="line"><span class="line-number">0207</span>         ):</span>
+<span id="L208" class="line"><span class="line-number">0208</span>             target = OUT / Path(requirement_source).with_suffix(&quot;.html&quot;)</span>
+<span id="L209" class="line"><span class="line-number">0209</span>             requirement_href = Path(</span>
+<span id="L210" class="line"><span class="line-number">0210</span>                 __import__(&quot;os&quot;).path.relpath(target, destination.parent)</span>
+<span id="L211" class="line"><span class="line-number">0211</span>             ).as_posix() + f&quot;#{requirement_id.lower()}&quot;</span>
+<span id="L212" class="line"><span class="line-number">0212</span>             annotations.setdefault(line, []).append((requirement_id, requirement_href))</span>
+<span id="L213" class="line"><span class="line-number">0213</span>             requirement_lines.setdefault(requirement_id, (line, requirement_title))</span>
+<span id="L214" class="line"><span class="line-number">0214</span>         rendered_lines = []</span>
+<span id="L215" class="line"><span class="line-number">0215</span>         for line_number, text in enumerate(source.read_text(encoding=&quot;utf-8&quot;).splitlines(), 1):</span>
+<span id="L216" class="line"><span class="line-number">0216</span>             links = &quot; &quot;.join(</span>
+<span id="L217" class="line"><span class="line-number">0217</span>                 f&#x27;&lt;a href=&quot;{html.escape(target, quote=True)}&quot;&gt;{html.escape(requirement_id)}&lt;/a&gt;&#x27;</span>
+<span id="L218" class="line"><span class="line-number">0218</span>                 for requirement_id, target in annotations.get(line_number, ())</span>
+<span id="L219" class="line"><span class="line-number">0219</span>             )</span>
+<span id="L220" class="line"><span class="line-number">0220</span>             marker = f&#x27;&lt;span class=&quot;requirements&quot;&gt; ← {links}&lt;/span&gt;&#x27; if links else &quot;&quot;</span>
+<span id="L221" class="line"><span class="line-number">0221</span>             rendered_lines.append(</span>
+<span id="L222" class="line"><span class="line-number">0222</span>                 f&#x27;&lt;span id=&quot;L{line_number}&quot; class=&quot;line&quot;&gt;&lt;span class=&quot;line-number&quot;&gt;{line_number:04d}&lt;/span&gt; &#x27;</span>
+<span id="L223" class="line"><span class="line-number">0223</span>                 f&#x27;{html.escape(text)}{marker}&lt;/span&gt;&#x27;</span>
+<span id="L224" class="line"><span class="line-number">0224</span>             )</span>
+<span id="L225" class="line"><span class="line-number">0225</span>         description = db.execute(</span>
+<span id="L226" class="line"><span class="line-number">0226</span>             &quot;SELECT description FROM code_python_files WHERE path = ?&quot;,</span>
+<span id="L227" class="line"><span class="line-number">0227</span>             (relative,),</span>
+<span id="L228" class="line"><span class="line-number">0228</span>         ).fetchone()</span>
+<span id="L229" class="line"><span class="line-number">0229</span>         title = html.escape(relative)</span>
+<span id="L230" class="line"><span class="line-number">0230</span>         source_body = &quot;\n&quot;.join(rendered_lines)</span>
+<span id="L231" class="line"><span class="line-number">0231</span>         requirement_items = &quot;&quot;.join(</span>
+<span id="L232" class="line"><span class="line-number">0232</span>             f&#x27;&lt;li&gt;&lt;a href=&quot;#L{line}&quot;&gt;{html.escape(requirement_id)}&lt;/a&gt; — {html.escape(requirement_title)}&lt;/li&gt;&#x27;</span>
+<span id="L233" class="line"><span class="line-number">0233</span>             for requirement_id, (line, requirement_title) in sorted(</span>
+<span id="L234" class="line"><span class="line-number">0234</span>                 requirement_lines.items(), key=lambda item: (item[1][0], item[0])</span>
+<span id="L235" class="line"><span class="line-number">0235</span>             )</span>
+<span id="L236" class="line"><span class="line-number">0236</span>         )</span>
+<span id="L237" class="line"><span class="line-number">0237</span>         requirement_summary = (</span>
+<span id="L238" class="line"><span class="line-number">0238</span>             f&#x27;&lt;h2&gt;Requirements in this file&lt;/h2&gt;&lt;ul class=&quot;requirement-list&quot;&gt;{requirement_items}&lt;/ul&gt;&#x27;</span>
+<span id="L239" class="line"><span class="line-number">0239</span>             if requirement_items</span>
+<span id="L240" class="line"><span class="line-number">0240</span>             else &quot;&quot;</span>
+<span id="L241" class="line"><span class="line-number">0241</span>         )</span>
+<span id="L242" class="line"><span class="line-number">0242</span>         body = (</span>
+<span id="L243" class="line"><span class="line-number">0243</span>             f&quot;&lt;h1&gt;{title}&lt;/h1&gt;&lt;p&gt;{html.escape(description[0]) if description else &#x27;&#x27;}&lt;/p&gt;&quot;</span>
+<span id="L244" class="line"><span class="line-number">0244</span>             f&quot;{requirement_summary}&quot;</span>
+<span id="L245" class="line"><span class="line-number">0245</span>             &quot;&lt;p&gt;Requirement comments link to the corresponding acceptance criterion.&lt;/p&gt;&quot;</span>
+<span id="L246" class="line"><span class="line-number">0246</span>             f&quot;&lt;pre&gt;&lt;code&gt;{source_body}&lt;/code&gt;&lt;/pre&gt;&quot;</span>
+<span id="L247" class="line"><span class="line-number">0247</span>         )</span>
+<span id="L248" class="line"><span class="line-number">0248</span>         destination.write_text(</span>
+<span id="L249" class="line"><span class="line-number">0249</span>             &#x27;&lt;!doctype html&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&#x27;</span>
+<span id="L250" class="line"><span class="line-number">0250</span>             f&quot;&lt;title&gt;{title} — Requi&lt;/title&gt;&quot;</span>
+<span id="L251" class="line"><span class="line-number">0251</span>             &#x27;&lt;style&gt;body{font:16px/1.6 system-ui,sans-serif;max-width:100rem;margin:0 auto;padding:2rem 1.25rem;background:#10141c;color:#e8edf5}&#x27;</span>
+<span id="L252" class="line"><span class="line-number">0252</span>             &#x27;a{color:#72b7ff}.requirement-list{margin-top:0}.requirement-list li{margin:.15rem 0}&#x27;</span>
+<span id="L253" class="line"><span class="line-number">0253</span>             &#x27;pre{font-size:8px;line-height:1.5;overflow:auto;background:#171d28;padding:1rem;border-radius:8px}.line{display:block}&#x27;</span>
+<span id="L254" class="line"><span class="line-number">0254</span>             &#x27;.line-number{display:inline-block;width:4rem;color:#8492a6;user-select:none}.requirements{margin-left:1rem}&lt;/style&gt;&#x27;</span>
+<span id="L255" class="line"><span class="line-number">0255</span>             f&quot;{body}&quot;,</span>
+<span id="L256" class="line"><span class="line-number">0256</span>             encoding=&quot;utf-8&quot;,</span>
+<span id="L257" class="line"><span class="line-number">0257</span>         )</span>
+<span id="L258" class="line"><span class="line-number">0258</span> </span>
+<span id="L259" class="line"><span class="line-number">0259</span> </span>
+<span id="L260" class="line"><span class="line-number">0260</span> def render_python_index(db: sqlite3.Connection) -&gt; None:</span>
+<span id="L261" class="line"><span class="line-number">0261</span>     category = OUT / &quot;code.python&quot;</span>
+<span id="L262" class="line"><span class="line-number">0262</span>     category.mkdir(parents=True, exist_ok=True)</span>
+<span id="L263" class="line"><span class="line-number">0263</span>     entries = []</span>
+<span id="L264" class="line"><span class="line-number">0264</span>     for path, description in db.execute(</span>
+<span id="L265" class="line"><span class="line-number">0265</span>         &quot;SELECT path, description FROM code_python_files ORDER BY path&quot;</span>
+<span id="L266" class="line"><span class="line-number">0266</span>     ):</span>
+<span id="L267" class="line"><span class="line-number">0267</span>         target = OUT / f&quot;{path}.html&quot;</span>
+<span id="L268" class="line"><span class="line-number">0268</span>         href = Path(__import__(&quot;os&quot;).path.relpath(target, category)).as_posix()</span>
+<span id="L269" class="line"><span class="line-number">0269</span>         entries.append(</span>
+<span id="L270" class="line"><span class="line-number">0270</span>             f&#x27;&lt;li&gt;&lt;h2&gt;&lt;a href=&quot;{html.escape(href, quote=True)}&quot;&gt;{html.escape(path)}&lt;/a&gt;&lt;/h2&gt;&#x27;</span>
+<span id="L271" class="line"><span class="line-number">0271</span>             f&#x27;&lt;p&gt;{html.escape(description)}&lt;/p&gt;&lt;/li&gt;&#x27;</span>
+<span id="L272" class="line"><span class="line-number">0272</span>         )</span>
+<span id="L273" class="line"><span class="line-number">0273</span>     body = &quot;\n&quot;.join(entries) or &quot;&lt;li&gt;No Python files catalogued.&lt;/li&gt;&quot;</span>
+<span id="L274" class="line"><span class="line-number">0274</span>     (category / &quot;index.html&quot;).write_text(</span>
+<span id="L275" class="line"><span class="line-number">0275</span>         &#x27;&lt;!doctype html&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;title&gt;code.python — Requi&lt;/title&gt;&#x27;</span>
+<span id="L276" class="line"><span class="line-number">0276</span>         &#x27;&lt;style&gt;body{font:16px/1.6 system-ui,sans-serif;max-width:72rem;margin:0 auto;padding:2rem 1.25rem}&#x27;</span>
+<span id="L277" class="line"><span class="line-number">0277</span>         &#x27;a{color:#06c}li{margin:1.5rem 0}h2{margin-bottom:.25rem}p{margin-top:0}&lt;/style&gt;&#x27;</span>
+<span id="L278" class="line"><span class="line-number">0278</span>         f&#x27;&lt;h1&gt;code.python&lt;/h1&gt;&lt;p&gt;Python source catalogued in &lt;code&gt;requi.db&lt;/code&gt;.&lt;/p&gt;&lt;ul&gt;{body}&lt;/ul&gt;&#x27;,</span>
+<span id="L279" class="line"><span class="line-number">0279</span>         encoding=&quot;utf-8&quot;,</span>
+<span id="L280" class="line"><span class="line-number">0280</span>     )</span>
+<span id="L281" class="line"><span class="line-number">0281</span> </span>
+<span id="L282" class="line"><span class="line-number">0282</span> </span>
+<span id="L283" class="line"><span class="line-number">0283</span> def main() -&gt; None:</span>
+<span id="L284" class="line"><span class="line-number">0284</span>     db = sqlite3.connect(ROOT / &quot;requi.db&quot;)</span>
+<span id="L285" class="line"><span class="line-number">0285</span>     db.execute(&quot;CREATE TABLE IF NOT EXISTS site_sources(path TEXT PRIMARY KEY, source_hash TEXT NOT NULL, generated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)&quot;)</span>
+<span id="L286" class="line"><span class="line-number">0286</span>     OUT.mkdir(parents=True, exist_ok=True)</span>
+<span id="L287" class="line"><span class="line-number">0287</span>     sources = markdown_sources(db)</span>
+<span id="L288" class="line"><span class="line-number">0288</span>     for (relative_source,) in db.execute(&quot;SELECT path FROM site_sources&quot;).fetchall():</span>
+<span id="L289" class="line"><span class="line-number">0289</span>         if relative_source not in sources:</span>
+<span id="L290" class="line"><span class="line-number">0290</span>             generated = OUT / Path(relative_source).with_suffix(&quot;.html&quot;)</span>
+<span id="L291" class="line"><span class="line-number">0291</span>             if generated.exists():</span>
+<span id="L292" class="line"><span class="line-number">0292</span>                 generated.unlink()</span>
+<span id="L293" class="line"><span class="line-number">0293</span>             db.execute(&quot;DELETE FROM site_sources WHERE path = ?&quot;, (relative_source,))</span>
+<span id="L294" class="line"><span class="line-number">0294</span>     for relative, markdown in sources.items():</span>
+<span id="L295" class="line"><span class="line-number">0295</span>         source = ROOT / relative</span>
+<span id="L296" class="line"><span class="line-number">0296</span>         destination = OUT / Path(relative).with_suffix(&quot;.html&quot;)</span>
+<span id="L297" class="line"><span class="line-number">0297</span>         destination.parent.mkdir(parents=True, exist_ok=True)</span>
+<span id="L298" class="line"><span class="line-number">0298</span>         title_match = re.search(r&quot;^# (?:Layer: )?(.+)$&quot;, markdown, re.M)</span>
+<span id="L299" class="line"><span class="line-number">0299</span>         title = title_match.group(1).strip() if title_match else source.stem</span>
+<span id="L300" class="line"><span class="line-number">0300</span>         destination.write_text(page(title, render(markdown, source), source), encoding=&quot;utf-8&quot;)</span>
+<span id="L301" class="line"><span class="line-number">0301</span>         digest = hashlib.sha256(markdown.encode(&quot;utf-8&quot;)).hexdigest()</span>
+<span id="L302" class="line"><span class="line-number">0302</span>         db.execute(</span>
+<span id="L303" class="line"><span class="line-number">0303</span>             &quot;INSERT OR REPLACE INTO site_sources(path, source_hash) VALUES (?, ?)&quot;,</span>
+<span id="L304" class="line"><span class="line-number">0304</span>             (relative, digest),</span>
+<span id="L305" class="line"><span class="line-number">0305</span>         )</span>
+<span id="L306" class="line"><span class="line-number">0306</span> </span>
+<span id="L307" class="line"><span class="line-number">0307</span>     for directory in sorted({path.parent for path in OUT.rglob(&quot;*.html&quot;)}):</span>
+<span id="L308" class="line"><span class="line-number">0308</span>         if directory == OUT:</span>
+<span id="L309" class="line"><span class="line-number">0309</span>             continue</span>
+<span id="L310" class="line"><span class="line-number">0310</span>         entries = &quot;\n&quot;.join(</span>
+<span id="L311" class="line"><span class="line-number">0311</span>             f&#x27;&lt;li&gt;&lt;a href=&quot;{path.name}&quot;&gt;{path.stem}&lt;/a&gt;&lt;/li&gt;&#x27;</span>
+<span id="L312" class="line"><span class="line-number">0312</span>             for path in sorted(directory.glob(&quot;*.html&quot;))</span>
+<span id="L313" class="line"><span class="line-number">0313</span>             if path.name != &quot;index.html&quot;</span>
+<span id="L314" class="line"><span class="line-number">0314</span>         )</span>
+<span id="L315" class="line"><span class="line-number">0315</span>         if directory == OUT / &quot;requirements&quot;:</span>
+<span id="L316" class="line"><span class="line-number">0316</span>             requirement_entries = []</span>
+<span id="L317" class="line"><span class="line-number">0317</span>             for relative, markdown in sources.items():</span>
+<span id="L318" class="line"><span class="line-number">0318</span>                 if not relative.startswith(&quot;requirements/&quot;):</span>
+<span id="L319" class="line"><span class="line-number">0319</span>                     continue</span>
+<span id="L320" class="line"><span class="line-number">0320</span>                 for match in re.finditer(r&quot;^## ((?:REQ|DB)-\d+) — (.+)$&quot;, markdown, re.M):</span>
+<span id="L321" class="line"><span class="line-number">0321</span>                     if match.group(1) in {&quot;DB-001&quot;, &quot;DB-002&quot;, &quot;DB-003&quot;, &quot;DB-004&quot;, &quot;DB-005&quot;, &quot;DB-006&quot;}:</span>
+<span id="L322" class="line"><span class="line-number">0322</span>                         continue</span>
+<span id="L323" class="line"><span class="line-number">0323</span>                     requirement_entries.append(</span>
+<span id="L324" class="line"><span class="line-number">0324</span>                         f&#x27;&lt;li&gt;&lt;a href=&quot;{Path(relative).stem}.html#{match.group(1).lower()}&quot;&gt;{match.group(1)} — {html.escape(match.group(2))}&lt;/a&gt;&lt;/li&gt;&#x27;</span>
+<span id="L325" class="line"><span class="line-number">0325</span>                     )</span>
+<span id="L326" class="line"><span class="line-number">0326</span>             entries = entries + &quot;\n&quot; + &quot;\n&quot;.join(requirement_entries)</span>
+<span id="L327" class="line"><span class="line-number">0327</span>         (directory / &quot;index.html&quot;).write_text(</span>
+<span id="L328" class="line"><span class="line-number">0328</span>             f&#x27;&lt;!doctype html&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;title&gt;{directory.name} — Requi&lt;/title&gt;&#x27;</span>
+<span id="L329" class="line"><span class="line-number">0329</span>             f&#x27;&lt;style&gt;body{{font:16px system-ui,sans-serif;max-width:60rem;margin:2rem auto}}a{{color:#06c}}&lt;/style&gt;&#x27;</span>
+<span id="L330" class="line"><span class="line-number">0330</span>             f&#x27;&lt;h1&gt;{directory.name}&lt;/h1&gt;&lt;ul&gt;{entries}&lt;/ul&gt;&#x27;,</span>
+<span id="L331" class="line"><span class="line-number">0331</span>             encoding=&quot;utf-8&quot;,</span>
+<span id="L332" class="line"><span class="line-number">0332</span>         )</span>
+<span id="L333" class="line"><span class="line-number">0333</span> </span>
+<span id="L334" class="line"><span class="line-number">0334</span>     render_python_sources(db)</span>
+<span id="L335" class="line"><span class="line-number">0335</span>     render_python_index(db)</span>
+<span id="L336" class="line"><span class="line-number">0336</span> </span>
+<span id="L337" class="line"><span class="line-number">0337</span>     (OUT / &quot;index.html&quot;).write_text(</span>
+<span id="L338" class="line"><span class="line-number">0338</span>         &#x27;&lt;!doctype html&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&#x27;</span>
+<span id="L339" class="line"><span class="line-number">0339</span>         &#x27;&lt;meta http-equiv=&quot;refresh&quot; content=&quot;0; url=_HOME.html&quot;&gt;&#x27;</span>
+<span id="L340" class="line"><span class="line-number">0340</span>         &#x27;&lt;title&gt;Requi&lt;/title&gt;&lt;a href=&quot;_HOME.html&quot;&gt;Open Requi home&lt;/a&gt;&#x27;,</span>
+<span id="L341" class="line"><span class="line-number">0341</span>         encoding=&quot;utf-8&quot;,</span>
+<span id="L342" class="line"><span class="line-number">0342</span>     )</span>
+<span id="L343" class="line"><span class="line-number">0343</span>     print(f&quot;Generated {len(sources)} HTML pages in {OUT.relative_to(ROOT)}/&quot;)</span>
+<span id="L344" class="line"><span class="line-number">0344</span>     db.commit()</span>
+<span id="L345" class="line"><span class="line-number">0345</span>     db.close()</span>
+<span id="L346" class="line"><span class="line-number">0346</span> </span>
+<span id="L347" class="line"><span class="line-number">0347</span> </span>
+<span id="L348" class="line"><span class="line-number">0348</span> if __name__ == &quot;__main__&quot;:</span>
+<span id="L349" class="line"><span class="line-number">0349</span>     if sys.argv[1:] == [&quot;--status&quot;]:</span>
+<span id="L350" class="line"><span class="line-number">0350</span>         raise SystemExit(status())</span>
+<span id="L351" class="line"><span class="line-number">0351</span>     main()</span></code></pre>

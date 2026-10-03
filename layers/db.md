@@ -2,7 +2,9 @@
 
 Database schema, live synchronization, generated-state tracking, and database-backed indexes.
 
-## Terms
+## Scopes
+
+(no scopes yet)
 
 <!-- requi:begin layer-terms-db -->
 (no terms yet)

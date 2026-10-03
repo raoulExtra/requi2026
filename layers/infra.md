@@ -4,6 +4,10 @@ Build, packaging, CI, deployment, OS integration (Wayland/X11).
 
 **Code:** *(link main source paths here)*
 
+## Scopes
+
+(no scopes yet)
+
 <!-- requi:begin layer-terms-infra -->
 - [Tauri](../terms/tauri.md)
 <!-- requi:end -->

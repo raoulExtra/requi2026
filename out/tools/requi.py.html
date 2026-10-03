@@ -1,0 +1,742 @@
+<!doctype html><meta charset="utf-8"><title>tools/requi.py — Requi</title><style>body{font:16px/1.6 system-ui,sans-serif;max-width:100rem;margin:0 auto;padding:2rem 1.25rem;background:#10141c;color:#e8edf5}a{color:#72b7ff}.requirement-list{margin-top:0}.requirement-list li{margin:.15rem 0}pre{font-size:8px;line-height:1.5;overflow:auto;background:#171d28;padding:1rem;border-radius:8px}.line{display:block}.line-number{display:inline-block;width:4rem;color:#8492a6;user-select:none}.requirements{margin-left:1rem}</style><h1>tools/requi.py</h1><p></p><h2>Requirements in this file</h2><ul class="requirement-list"><li><a href="#L137">DB-001</a> — Preserve the live database</li><li><a href="#L137">DB-002</a> — Synchronize Markdown metadata safely</li><li><a href="#L137">DB-004</a> — Track generated HTML freshness</li><li><a href="#L137">DB-005</a> — Expose semantic name collisions</li><li><a href="#L137">DB-006</a> — Keep layers out of the term vocabulary</li></ul><p>Requirement comments link to the corresponding acceptance criterion.</p><pre><code><span id="L1" class="line"><span class="line-number">0001</span> #!/usr/bin/env python3</span>
+<span id="L2" class="line"><span class="line-number">0002</span> from __future__ import annotations</span>
+<span id="L3" class="line"><span class="line-number">0003</span> </span>
+<span id="L4" class="line"><span class="line-number">0004</span> import argparse</span>
+<span id="L5" class="line"><span class="line-number">0005</span> import re</span>
+<span id="L6" class="line"><span class="line-number">0006</span> import sqlite3</span>
+<span id="L7" class="line"><span class="line-number">0007</span> import subprocess</span>
+<span id="L8" class="line"><span class="line-number">0008</span> import sys</span>
+<span id="L9" class="line"><span class="line-number">0009</span> from pathlib import Path</span>
+<span id="L10" class="line"><span class="line-number">0010</span> from db_source import (</span>
+<span id="L11" class="line"><span class="line-number">0011</span>     ensure_schema,</span>
+<span id="L12" class="line"><span class="line-number">0012</span>     import_markdown,</span>
+<span id="L13" class="line"><span class="line-number">0013</span>     markdown_database_differences,</span>
+<span id="L14" class="line"><span class="line-number">0014</span>     render_database,</span>
+<span id="L15" class="line"><span class="line-number">0015</span>     _layer_markdown,</span>
+<span id="L16" class="line"><span class="line-number">0016</span>     _scope_markdown,</span>
+<span id="L17" class="line"><span class="line-number">0017</span>     _term_markdown,</span>
+<span id="L18" class="line"><span class="line-number">0018</span> )</span>
+<span id="L19" class="line"><span class="line-number">0019</span> from command_ast import load_commands, render_argparse, render_json, render_tree, select_commands</span>
+<span id="L20" class="line"><span class="line-number">0020</span> </span>
+<span id="L21" class="line"><span class="line-number">0021</span> ROOT = Path(__file__).resolve().parents[1]</span>
+<span id="L22" class="line"><span class="line-number">0022</span> </span>
+<span id="L23" class="line"><span class="line-number">0023</span> </span>
+<span id="L24" class="line"><span class="line-number">0024</span> </span>
+<span id="L25" class="line"><span class="line-number">0025</span> </span>
+<span id="L26" class="line"><span class="line-number">0026</span> def render() -&gt; None:</span>
+<span id="L27" class="line"><span class="line-number">0027</span>     db = sqlite3.connect(ROOT / &quot;requi.db&quot;)</span>
+<span id="L28" class="line"><span class="line-number">0028</span>     try:</span>
+<span id="L29" class="line"><span class="line-number">0029</span>         ensure_schema(db)</span>
+<span id="L30" class="line"><span class="line-number">0030</span>         db.executescript(</span>
+<span id="L31" class="line"><span class="line-number">0031</span>             &quot;&quot;&quot;</span>
+<span id="L32" class="line"><span class="line-number">0032</span>             CREATE TABLE IF NOT EXISTS commands(name TEXT PRIMARY KEY, purpose TEXT, usage TEXT);</span>
+<span id="L33" class="line"><span class="line-number">0033</span>             CREATE TABLE IF NOT EXISTS command_arguments(</span>
+<span id="L34" class="line"><span class="line-number">0034</span>                 command_name TEXT, name TEXT, flag TEXT, required INTEGER, value_type TEXT, description TEXT,</span>
+<span id="L35" class="line"><span class="line-number">0035</span>                 PRIMARY KEY(command_name, name)</span>
+<span id="L36" class="line"><span class="line-number">0036</span>             );</span>
+<span id="L37" class="line"><span class="line-number">0037</span>             CREATE TABLE IF NOT EXISTS command_aliases(command_name TEXT, alias TEXT PRIMARY KEY);</span>
+<span id="L38" class="line"><span class="line-number">0038</span>             &quot;&quot;&quot;</span>
+<span id="L39" class="line"><span class="line-number">0039</span>         )</span>
+<span id="L40" class="line"><span class="line-number">0040</span>         command_data(db)</span>
+<span id="L41" class="line"><span class="line-number">0041</span>         render_database(db)</span>
+<span id="L42" class="line"><span class="line-number">0042</span>         db.commit()</span>
+<span id="L43" class="line"><span class="line-number">0043</span>     finally:</span>
+<span id="L44" class="line"><span class="line-number">0044</span>         db.close()</span>
+<span id="L45" class="line"><span class="line-number">0045</span>     subprocess.run([sys.executable, str(ROOT / &quot;tools&quot; / &quot;site.py&quot;)], check=True)</span>
+<span id="L46" class="line"><span class="line-number">0046</span> COMMANDS = (</span>
+<span id="L47" class="line"><span class="line-number">0047</span>     (&quot;build&quot;, &quot;Import Markdown once, synchronize SQLite, and render the site&quot;, &quot;./requi.sh build&quot;),</span>
+<span id="L48" class="line"><span class="line-number">0048</span>     (&quot;render&quot;, &quot;Render the SQLite source of truth into Markdown projections and HTML&quot;, &quot;./requi.sh render&quot;),</span>
+<span id="L49" class="line"><span class="line-number">0049</span>     (&quot;check&quot;, &quot;Check Markdown, SQLite, and generated references for consistency&quot;, &quot;./requi.sh check&quot;),</span>
+<span id="L50" class="line"><span class="line-number">0050</span>     (&quot;status&quot;, &quot;Report generated HTML freshness&quot;, &quot;./requi.sh status&quot;),</span>
+<span id="L51" class="line"><span class="line-number">0051</span>     (&quot;q&quot;, &quot;Run a read-only SQL query against requi.db&quot;, &quot;./requi.sh q SQL&quot;),</span>
+<span id="L52" class="line"><span class="line-number">0052</span>     (&quot;db&quot;, &quot;Inspect database-backed entities or source state&quot;, &quot;./requi.sh db ACTION [ENTITY]&quot;),</span>
+<span id="L53" class="line"><span class="line-number">0053</span>     (&quot;add-term&quot;, &quot;Create a term in SQLite and render its HTML page&quot;, &quot;./requi.sh add-term NAME --definition TEXT [--layer ID] [--scope ID]&quot;),</span>
+<span id="L54" class="line"><span class="line-number">0054</span>     (&quot;list-terms&quot;, &quot;List all database terms and HTML routes&quot;, &quot;./requi.sh list-terms&quot;),</span>
+<span id="L55" class="line"><span class="line-number">0055</span>     (&quot;show-term&quot;, &quot;Display one database term as Markdown&quot;, &quot;./requi.sh show-term NAME&quot;),</span>
+<span id="L56" class="line"><span class="line-number">0056</span>     (&quot;update-term&quot;, &quot;Update a term in SQLite and render its HTML page&quot;, &quot;./requi.sh update-term NAME [--definition TEXT] [--layer ID] [--scope ID]&quot;),</span>
+<span id="L57" class="line"><span class="line-number">0057</span>     (&quot;delete-term&quot;, &quot;Delete a term from SQLite and rebuild HTML&quot;, &quot;./requi.sh delete-term NAME&quot;),</span>
+<span id="L58" class="line"><span class="line-number">0058</span>     (&quot;add-scope&quot;, &quot;Create a scope in SQLite and render its HTML page&quot;, &quot;./requi.sh add-scope NAME [--description TEXT]&quot;),</span>
+<span id="L59" class="line"><span class="line-number">0059</span>     (&quot;list-scopes&quot;, &quot;List all database scopes and HTML routes&quot;, &quot;./requi.sh list-scopes&quot;),</span>
+<span id="L60" class="line"><span class="line-number">0060</span>     (&quot;show-scope&quot;, &quot;Display one database scope as Markdown&quot;, &quot;./requi.sh show-scope NAME&quot;),</span>
+<span id="L61" class="line"><span class="line-number">0061</span>     (&quot;update-scope&quot;, &quot;Update a scope in SQLite and render its HTML page&quot;, &quot;./requi.sh update-scope NAME [--description TEXT]&quot;),</span>
+<span id="L62" class="line"><span class="line-number">0062</span>     (&quot;delete-scope&quot;, &quot;Delete an unused scope from SQLite and rebuild HTML&quot;, &quot;./requi.sh delete-scope NAME&quot;),</span>
+<span id="L63" class="line"><span class="line-number">0063</span>     (&quot;add&quot;, &quot;Create a term, layer, or scope using the compact command&quot;, &quot;./requi.sh add ENTITY NAME [--definition TEXT] [--layer ID] [--scope ID]&quot;),</span>
+<span id="L64" class="line"><span class="line-number">0064</span>     (&quot;create&quot;, &quot;Create a supported entity&quot;, &quot;./requi.sh create ENTITY NAME&quot;),</span>
+<span id="L65" class="line"><span class="line-number">0065</span>     (&quot;read&quot;, &quot;Read a supported entity or database view&quot;, &quot;./requi.sh read ENTITY [NAME]&quot;),</span>
+<span id="L66" class="line"><span class="line-number">0066</span>     (&quot;update&quot;, &quot;Update a supported entity&quot;, &quot;./requi.sh update ENTITY NAME&quot;),</span>
+<span id="L67" class="line"><span class="line-number">0067</span>     (&quot;delete&quot;, &quot;Delete a supported entity&quot;, &quot;./requi.sh delete ENTITY NAME&quot;),</span>
+<span id="L68" class="line"><span class="line-number">0068</span>     (&quot;list&quot;, &quot;List a supported entity or database view&quot;, &quot;./requi.sh list ENTITY&quot;),</span>
+<span id="L69" class="line"><span class="line-number">0069</span>     (&quot;upd&quot;, &quot;Short alias for update-term&quot;, &quot;./requi.sh upd NAME [--definition TEXT] [--layer ID] [--scope ID]&quot;),</span>
+<span id="L70" class="line"><span class="line-number">0070</span>     (&quot;del&quot;, &quot;Short alias for delete-term&quot;, &quot;./requi.sh del NAME&quot;),</span>
+<span id="L71" class="line"><span class="line-number">0071</span>     (&quot;ast&quot;, &quot;Inspect command structure or emit parser-construction code&quot;, &quot;./requi.sh ast [COMMAND] [--format FORMAT]&quot;),</span>
+<span id="L72" class="line"><span class="line-number">0072</span> )</span>
+<span id="L73" class="line"><span class="line-number">0073</span> COMMAND_ALIASES = ((&quot;delete&quot;, &quot;del&quot;), (&quot;update&quot;, &quot;upd&quot;))</span>
+<span id="L74" class="line"><span class="line-number">0074</span> COMMAND_ARGUMENTS = (</span>
+<span id="L75" class="line"><span class="line-number">0075</span>     (&quot;add-term&quot;, &quot;name&quot;, &quot;positional&quot;, 1, &quot;string&quot;, &quot;Display name&quot;),</span>
+<span id="L76" class="line"><span class="line-number">0076</span>     (&quot;add-term&quot;, &quot;definition&quot;, &quot;--definition&quot;, 1, &quot;string&quot;, &quot;One-line definition&quot;),</span>
+<span id="L77" class="line"><span class="line-number">0077</span>     (&quot;add-term&quot;, &quot;layer&quot;, &quot;--layer&quot;, 0, &quot;layer-id&quot;, &quot;Layer ID, for example data&quot;),</span>
+<span id="L78" class="line"><span class="line-number">0078</span>     (&quot;add-term&quot;, &quot;scope&quot;, &quot;--scope&quot;, 0, &quot;scope-id&quot;, &quot;Scope ID; repeat for multiple scopes&quot;),</span>
+<span id="L79" class="line"><span class="line-number">0079</span>     (&quot;show-term&quot;, &quot;name&quot;, &quot;positional&quot;, 1, &quot;string&quot;, &quot;Term display name&quot;),</span>
+<span id="L80" class="line"><span class="line-number">0080</span>     (&quot;update-term&quot;, &quot;name&quot;, &quot;positional&quot;, 1, &quot;string&quot;, &quot;Term display name&quot;),</span>
+<span id="L81" class="line"><span class="line-number">0081</span>     (&quot;update-term&quot;, &quot;definition&quot;, &quot;--definition&quot;, 0, &quot;string&quot;, &quot;Replacement definition&quot;),</span>
+<span id="L82" class="line"><span class="line-number">0082</span>     (&quot;update-term&quot;, &quot;layer&quot;, &quot;--layer&quot;, 0, &quot;layer-id&quot;, &quot;Replacement layer&quot;),</span>
+<span id="L83" class="line"><span class="line-number">0083</span>     (&quot;update-term&quot;, &quot;scope&quot;, &quot;--scope&quot;, 0, &quot;scope-id&quot;, &quot;Replacement scopes; repeat for multiple scopes&quot;),</span>
+<span id="L84" class="line"><span class="line-number">0084</span>     (&quot;delete-term&quot;, &quot;name&quot;, &quot;positional&quot;, 1, &quot;string&quot;, &quot;Term display name&quot;),</span>
+<span id="L85" class="line"><span class="line-number">0085</span>     (&quot;add-scope&quot;, &quot;name&quot;, &quot;positional&quot;, 1, &quot;string&quot;, &quot;Scope name&quot;),</span>
+<span id="L86" class="line"><span class="line-number">0086</span>     (&quot;add-scope&quot;, &quot;description&quot;, &quot;--description&quot;, 0, &quot;string&quot;, &quot;Scope description&quot;),</span>
+<span id="L87" class="line"><span class="line-number">0087</span>     (&quot;show-scope&quot;, &quot;name&quot;, &quot;positional&quot;, 1, &quot;string&quot;, &quot;Scope name&quot;),</span>
+<span id="L88" class="line"><span class="line-number">0088</span>     (&quot;update-scope&quot;, &quot;name&quot;, &quot;positional&quot;, 1, &quot;string&quot;, &quot;Scope name&quot;),</span>
+<span id="L89" class="line"><span class="line-number">0089</span>     (&quot;update-scope&quot;, &quot;description&quot;, &quot;--description&quot;, 0, &quot;string&quot;, &quot;Replacement description&quot;),</span>
+<span id="L90" class="line"><span class="line-number">0090</span>     (&quot;delete-scope&quot;, &quot;name&quot;, &quot;positional&quot;, 1, &quot;string&quot;, &quot;Scope name&quot;),</span>
+<span id="L91" class="line"><span class="line-number">0091</span>     (&quot;ast&quot;, &quot;name&quot;, &quot;positional&quot;, 0, &quot;command&quot;, &quot;Command name; omit for all commands&quot;),</span>
+<span id="L92" class="line"><span class="line-number">0092</span>     (&quot;ast&quot;, &quot;format&quot;, &quot;--format&quot;, 0, &quot;enum&quot;, &quot;tree, json, or python&quot;),</span>
+<span id="L93" class="line"><span class="line-number">0093</span>     (&quot;q&quot;, &quot;sql&quot;, &quot;positional&quot;, 1, &quot;sql&quot;, &quot;Read-only SQL query&quot;),</span>
+<span id="L94" class="line"><span class="line-number">0094</span>     (&quot;db&quot;, &quot;action&quot;, &quot;positional&quot;, 1, &quot;enum&quot;, &quot;list or status&quot;),</span>
+<span id="L95" class="line"><span class="line-number">0095</span>     (&quot;db&quot;, &quot;entity&quot;, &quot;positional&quot;, 0, &quot;enum&quot;, &quot;Currently lexemes for db list&quot;),</span>
+<span id="L96" class="line"><span class="line-number">0096</span>     (&quot;add&quot;, &quot;entity&quot;, &quot;positional&quot;, 1, &quot;enum&quot;, &quot;term, layer, or scope&quot;),</span>
+<span id="L97" class="line"><span class="line-number">0097</span>     (&quot;add&quot;, &quot;name&quot;, &quot;positional&quot;, 1, &quot;string&quot;, &quot;Entity name; remaining words are accepted for term names&quot;),</span>
+<span id="L98" class="line"><span class="line-number">0098</span>     (&quot;add&quot;, &quot;definition&quot;, &quot;--definition&quot;, 0, &quot;string&quot;, &quot;Term definition&quot;),</span>
+<span id="L99" class="line"><span class="line-number">0099</span>     (&quot;add&quot;, &quot;layer&quot;, &quot;--layer&quot;, 0, &quot;layer-id&quot;, &quot;Layer ID&quot;),</span>
+<span id="L100" class="line"><span class="line-number">0100</span>     (&quot;add&quot;, &quot;scope&quot;, &quot;--scope&quot;, 0, &quot;scope-id&quot;, &quot;Scope ID; repeat for multiple scopes&quot;),</span>
+<span id="L101" class="line"><span class="line-number">0101</span>     (&quot;create&quot;, &quot;entity&quot;, &quot;positional&quot;, 1, &quot;enum&quot;, &quot;term, layer, or scope&quot;),</span>
+<span id="L102" class="line"><span class="line-number">0102</span>     (&quot;create&quot;, &quot;name&quot;, &quot;positional&quot;, 1, &quot;string&quot;, &quot;Entity name&quot;),</span>
+<span id="L103" class="line"><span class="line-number">0103</span>     (&quot;create&quot;, &quot;definition&quot;, &quot;--definition&quot;, 0, &quot;string&quot;, &quot;Term definition&quot;),</span>
+<span id="L104" class="line"><span class="line-number">0104</span>     (&quot;create&quot;, &quot;description&quot;, &quot;--description&quot;, 0, &quot;string&quot;, &quot;Layer or scope description&quot;),</span>
+<span id="L105" class="line"><span class="line-number">0105</span>     (&quot;create&quot;, &quot;layer&quot;, &quot;--layer&quot;, 0, &quot;layer-id&quot;, &quot;Layer ID&quot;),</span>
+<span id="L106" class="line"><span class="line-number">0106</span>     (&quot;create&quot;, &quot;scope&quot;, &quot;--scope&quot;, 0, &quot;scope-id&quot;, &quot;Scope ID; repeat for multiple scopes&quot;),</span>
+<span id="L107" class="line"><span class="line-number">0107</span>     (&quot;read&quot;, &quot;entity&quot;, &quot;positional&quot;, 1, &quot;enum&quot;, &quot;term, layer, scope, or view&quot;),</span>
+<span id="L108" class="line"><span class="line-number">0108</span>     (&quot;read&quot;, &quot;name&quot;, &quot;positional&quot;, 0, &quot;string&quot;, &quot;Entity name, when required&quot;),</span>
+<span id="L109" class="line"><span class="line-number">0109</span>     (&quot;update&quot;, &quot;entity&quot;, &quot;positional&quot;, 1, &quot;enum&quot;, &quot;term, layer, or scope&quot;),</span>
+<span id="L110" class="line"><span class="line-number">0110</span>     (&quot;update&quot;, &quot;name&quot;, &quot;positional&quot;, 1, &quot;string&quot;, &quot;Entity name&quot;),</span>
+<span id="L111" class="line"><span class="line-number">0111</span>     (&quot;update&quot;, &quot;definition&quot;, &quot;--definition&quot;, 0, &quot;string&quot;, &quot;Replacement term definition&quot;),</span>
+<span id="L112" class="line"><span class="line-number">0112</span>     (&quot;update&quot;, &quot;description&quot;, &quot;--description&quot;, 0, &quot;string&quot;, &quot;Replacement layer or scope description&quot;),</span>
+<span id="L113" class="line"><span class="line-number">0113</span>     (&quot;update&quot;, &quot;layer&quot;, &quot;--layer&quot;, 0, &quot;layer-id&quot;, &quot;Replacement layer&quot;),</span>
+<span id="L114" class="line"><span class="line-number">0114</span>     (&quot;update&quot;, &quot;scope&quot;, &quot;--scope&quot;, 0, &quot;scope-id&quot;, &quot;Replacement scopes; repeat for multiple scopes&quot;),</span>
+<span id="L115" class="line"><span class="line-number">0115</span>     (&quot;delete&quot;, &quot;entity&quot;, &quot;positional&quot;, 1, &quot;enum&quot;, &quot;term, layer, or scope&quot;),</span>
+<span id="L116" class="line"><span class="line-number">0116</span>     (&quot;delete&quot;, &quot;name&quot;, &quot;positional&quot;, 1, &quot;string&quot;, &quot;Entity name&quot;),</span>
+<span id="L117" class="line"><span class="line-number">0117</span>     (&quot;list&quot;, &quot;entity&quot;, &quot;positional&quot;, 1, &quot;enum&quot;, &quot;term, scope, layer, lexeme, or view&quot;),</span>
+<span id="L118" class="line"><span class="line-number">0118</span>     (&quot;upd&quot;, &quot;name&quot;, &quot;positional&quot;, 1, &quot;string&quot;, &quot;Term name&quot;),</span>
+<span id="L119" class="line"><span class="line-number">0119</span>     (&quot;upd&quot;, &quot;definition&quot;, &quot;--definition&quot;, 0, &quot;string&quot;, &quot;Replacement definition&quot;),</span>
+<span id="L120" class="line"><span class="line-number">0120</span>     (&quot;upd&quot;, &quot;layer&quot;, &quot;--layer&quot;, 0, &quot;layer-id&quot;, &quot;Replacement layer&quot;),</span>
+<span id="L121" class="line"><span class="line-number">0121</span>     (&quot;upd&quot;, &quot;scope&quot;, &quot;--scope&quot;, 0, &quot;scope-id&quot;, &quot;Replacement scopes; repeat for multiple scopes&quot;),</span>
+<span id="L122" class="line"><span class="line-number">0122</span>     (&quot;del&quot;, &quot;name&quot;, &quot;positional&quot;, 1, &quot;string&quot;, &quot;Term name&quot;),</span>
+<span id="L123" class="line"><span class="line-number">0123</span> )</span>
+<span id="L124" class="line"><span class="line-number">0124</span> </span>
+<span id="L125" class="line"><span class="line-number">0125</span> </span>
+<span id="L126" class="line"><span class="line-number">0126</span> def command_data(db: sqlite3.Connection) -&gt; None:</span>
+<span id="L127" class="line"><span class="line-number">0127</span>     for name, purpose, usage in COMMANDS:</span>
+<span id="L128" class="line"><span class="line-number">0128</span>         db.execute(&quot;INSERT OR REPLACE INTO commands VALUES (?, ?, ?)&quot;, (name, purpose, usage))</span>
+<span id="L129" class="line"><span class="line-number">0129</span>     for command, name, flag, required, value_type, description in COMMAND_ARGUMENTS:</span>
+<span id="L130" class="line"><span class="line-number">0130</span>         db.execute(</span>
+<span id="L131" class="line"><span class="line-number">0131</span>             &quot;INSERT OR REPLACE INTO command_arguments VALUES (?, ?, ?, ?, ?, ?)&quot;,</span>
+<span id="L132" class="line"><span class="line-number">0132</span>             (command, name, flag, required, value_type, description),</span>
+<span id="L133" class="line"><span class="line-number">0133</span>         )</span>
+<span id="L134" class="line"><span class="line-number">0134</span>     for command, alias in COMMAND_ALIASES:</span>
+<span id="L135" class="line"><span class="line-number">0135</span>         db.execute(&quot;INSERT OR REPLACE INTO command_aliases VALUES (?, ?)&quot;, (command, alias))</span>
+<span id="L136" class="line"><span class="line-number">0136</span> </span>
+<span id="L137" class="line"><span class="line-number">0137</span> # REQUI: DB-001 DB-002 DB-004 DB-005 DB-006<span class="requirements"> ← <a href="../requirements/db.html#db-001">DB-001</a> <a href="../requirements/db.html#db-002">DB-002</a> <a href="../requirements/db.html#db-004">DB-004</a> <a href="../requirements/db.html#db-005">DB-005</a> <a href="../requirements/db.html#db-006">DB-006</a></span></span>
+<span id="L138" class="line"><span class="line-number">0138</span> def build() -&gt; None:</span>
+<span id="L139" class="line"><span class="line-number">0139</span>     db = sqlite3.connect(ROOT / &quot;requi.db&quot;)</span>
+<span id="L140" class="line"><span class="line-number">0140</span>     ensure_schema(db)</span>
+<span id="L141" class="line"><span class="line-number">0141</span>     db.executescript(</span>
+<span id="L142" class="line"><span class="line-number">0142</span>         &quot;&quot;&quot;</span>
+<span id="L143" class="line"><span class="line-number">0143</span>         CREATE TABLE IF NOT EXISTS commands(name TEXT PRIMARY KEY, purpose TEXT, usage TEXT);</span>
+<span id="L144" class="line"><span class="line-number">0144</span>         CREATE TABLE IF NOT EXISTS command_arguments(</span>
+<span id="L145" class="line"><span class="line-number">0145</span>             command_name TEXT, name TEXT, flag TEXT, required INTEGER, value_type TEXT, description TEXT,</span>
+<span id="L146" class="line"><span class="line-number">0146</span>             PRIMARY KEY(command_name, name)</span>
+<span id="L147" class="line"><span class="line-number">0147</span>         );</span>
+<span id="L148" class="line"><span class="line-number">0148</span>         CREATE TABLE IF NOT EXISTS command_aliases(command_name TEXT, alias TEXT PRIMARY KEY);</span>
+<span id="L149" class="line"><span class="line-number">0149</span>         DROP VIEW IF EXISTS v_name_collisions;</span>
+<span id="L150" class="line"><span class="line-number">0150</span>         DROP VIEW IF EXISTS v_entities;</span>
+<span id="L151" class="line"><span class="line-number">0151</span>         DROP VIEW IF EXISTS v_commands;</span>
+<span id="L152" class="line"><span class="line-number">0152</span>         &quot;&quot;&quot;</span>
+<span id="L153" class="line"><span class="line-number">0153</span>     )</span>
+<span id="L154" class="line"><span class="line-number">0154</span>     source_mode = db.execute(&quot;SELECT value FROM requi_state WHERE key = &#x27;source_mode&#x27;&quot;).fetchone()</span>
+<span id="L155" class="line"><span class="line-number">0155</span>     migrated = not source_mode or source_mode[0] != &quot;sqlite&quot;</span>
+<span id="L156" class="line"><span class="line-number">0156</span>     if migrated:</span>
+<span id="L157" class="line"><span class="line-number">0157</span>         import_markdown(db)</span>
+<span id="L158" class="line"><span class="line-number">0158</span>     command_data(db)</span>
+<span id="L159" class="line"><span class="line-number">0159</span>     db.execute(</span>
+<span id="L160" class="line"><span class="line-number">0160</span>         &quot;CREATE VIEW v_commands AS &quot;</span>
+<span id="L161" class="line"><span class="line-number">0161</span>         &quot;SELECT c.name, c.purpose, c.usage, a.name AS argument, a.flag, a.required, &quot;</span>
+<span id="L162" class="line"><span class="line-number">0162</span>         &quot;a.value_type, a.description FROM commands c &quot;</span>
+<span id="L163" class="line"><span class="line-number">0163</span>         &quot;LEFT JOIN command_arguments a ON a.command_name = c.name&quot;</span>
+<span id="L164" class="line"><span class="line-number">0164</span>     )</span>
+<span id="L165" class="line"><span class="line-number">0165</span>     db.executescript(</span>
+<span id="L166" class="line"><span class="line-number">0166</span>         &quot;&quot;&quot;</span>
+<span id="L167" class="line"><span class="line-number">0167</span>         CREATE VIEW v_entities AS</span>
+<span id="L168" class="line"><span class="line-number">0168</span>         SELECT &#x27;term&#x27; AS kind, name, path AS source FROM terms</span>
+<span id="L169" class="line"><span class="line-number">0169</span>         UNION ALL SELECT &#x27;scope&#x27;, name, &#x27;scopes/&#x27; || id || &#x27;.md&#x27; FROM scopes</span>
+<span id="L170" class="line"><span class="line-number">0170</span>         UNION ALL SELECT &#x27;layer&#x27;, id, &#x27;layers/&#x27; || id || &#x27;.md&#x27; FROM layers</span>
+<span id="L171" class="line"><span class="line-number">0171</span>         UNION ALL SELECT &#x27;db-table&#x27;, name, &#x27;sqlite table&#x27; FROM sqlite_master</span>
+<span id="L172" class="line"><span class="line-number">0172</span>             WHERE type = &#x27;table&#x27; AND name NOT LIKE &#x27;sqlite_%&#x27;</span>
+<span id="L173" class="line"><span class="line-number">0173</span>         UNION ALL SELECT &#x27;command&#x27;, name, &#x27;commands&#x27; FROM commands</span>
+<span id="L174" class="line"><span class="line-number">0174</span>         UNION ALL SELECT &#x27;view&#x27;, name, &#x27;sqlite view&#x27; FROM sqlite_master WHERE type = &#x27;view&#x27;;</span>
+<span id="L175" class="line"><span class="line-number">0175</span>         CREATE VIEW v_name_collisions AS</span>
+<span id="L176" class="line"><span class="line-number">0176</span>         SELECT lower(name) AS normalized_name, COUNT(*) AS match_count,</span>
+<span id="L177" class="line"><span class="line-number">0177</span>             group_concat(kind || &#x27;:&#x27; || source, &#x27; | &#x27;) AS matches</span>
+<span id="L178" class="line"><span class="line-number">0178</span>         FROM v_entities GROUP BY lower(name) HAVING COUNT(*) &gt; 1;</span>
+<span id="L179" class="line"><span class="line-number">0179</span>         &quot;&quot;&quot;</span>
+<span id="L180" class="line"><span class="line-number">0180</span>     )</span>
+<span id="L181" class="line"><span class="line-number">0181</span>     db.commit()</span>
+<span id="L182" class="line"><span class="line-number">0182</span>     db.close()</span>
+<span id="L183" class="line"><span class="line-number">0183</span>     if migrated:</span>
+<span id="L184" class="line"><span class="line-number">0184</span>         render()</span>
+<span id="L185" class="line"><span class="line-number">0185</span> def slugify(name: str) -&gt; str:</span>
+<span id="L186" class="line"><span class="line-number">0186</span>     slug = re.sub(r&quot;[^a-z0-9]+&quot;, &quot;-&quot;, name.casefold()).strip(&quot;-&quot;)</span>
+<span id="L187" class="line"><span class="line-number">0187</span>     if not slug:</span>
+<span id="L188" class="line"><span class="line-number">0188</span>         raise ValueError(&quot;name produces an empty identifier&quot;)</span>
+<span id="L189" class="line"><span class="line-number">0189</span>     return slug</span>
+<span id="L190" class="line"><span class="line-number">0190</span> </span>
+<span id="L191" class="line"><span class="line-number">0191</span> </span>
+<span id="L192" class="line"><span class="line-number">0192</span> def source_db() -&gt; sqlite3.Connection:</span>
+<span id="L193" class="line"><span class="line-number">0193</span>     db = sqlite3.connect(ROOT / &quot;requi.db&quot;)</span>
+<span id="L194" class="line"><span class="line-number">0194</span>     ensure_schema(db)</span>
+<span id="L195" class="line"><span class="line-number">0195</span>     source_mode = db.execute(&quot;SELECT value FROM requi_state WHERE key = &#x27;source_mode&#x27;&quot;).fetchone()</span>
+<span id="L196" class="line"><span class="line-number">0196</span>     if not source_mode or source_mode[0] != &quot;sqlite&quot;:</span>
+<span id="L197" class="line"><span class="line-number">0197</span>         db.close()</span>
+<span id="L198" class="line"><span class="line-number">0198</span>         build()</span>
+<span id="L199" class="line"><span class="line-number">0199</span>         db = sqlite3.connect(ROOT / &quot;requi.db&quot;)</span>
+<span id="L200" class="line"><span class="line-number">0200</span>         ensure_schema(db)</span>
+<span id="L201" class="line"><span class="line-number">0201</span>     return db</span>
+<span id="L202" class="line"><span class="line-number">0202</span> </span>
+<span id="L203" class="line"><span class="line-number">0203</span> </span>
+<span id="L204" class="line"><span class="line-number">0204</span> def term_path(name: str) -&gt; Path:</span>
+<span id="L205" class="line"><span class="line-number">0205</span>     db = source_db()</span>
+<span id="L206" class="line"><span class="line-number">0206</span>     row = db.execute(&quot;SELECT path FROM terms WHERE lower(name) = lower(?)&quot;, (name,)).fetchone()</span>
+<span id="L207" class="line"><span class="line-number">0207</span>     db.close()</span>
+<span id="L208" class="line"><span class="line-number">0208</span>     return ROOT / row[0] if row else ROOT / &quot;terms&quot; / f&quot;{slugify(name)}.md&quot;</span>
+<span id="L209" class="line"><span class="line-number">0209</span> </span>
+<span id="L210" class="line"><span class="line-number">0210</span> def scope_ids(db: sqlite3.Connection, names: list[str]) -&gt; list[str]:</span>
+<span id="L211" class="line"><span class="line-number">0211</span>     ids: list[str] = []</span>
+<span id="L212" class="line"><span class="line-number">0212</span>     for name in names:</span>
+<span id="L213" class="line"><span class="line-number">0213</span>         row = db.execute(</span>
+<span id="L214" class="line"><span class="line-number">0214</span>             &quot;SELECT id FROM scopes WHERE lower(id) = lower(?) OR lower(name) = lower(?)&quot;,</span>
+<span id="L215" class="line"><span class="line-number">0215</span>             (name, name),</span>
+<span id="L216" class="line"><span class="line-number">0216</span>         ).fetchone()</span>
+<span id="L217" class="line"><span class="line-number">0217</span>         if not row:</span>
+<span id="L218" class="line"><span class="line-number">0218</span>             raise ValueError(f&quot;unknown scope: {name}&quot;)</span>
+<span id="L219" class="line"><span class="line-number">0219</span>         if row[0] not in ids:</span>
+<span id="L220" class="line"><span class="line-number">0220</span>             ids.append(row[0])</span>
+<span id="L221" class="line"><span class="line-number">0221</span>     return ids</span>
+<span id="L222" class="line"><span class="line-number">0222</span> </span>
+<span id="L223" class="line"><span class="line-number">0223</span> </span>
+<span id="L224" class="line"><span class="line-number">0224</span> def scope_route(scope_id: str) -&gt; str:</span>
+<span id="L225" class="line"><span class="line-number">0225</span>     return (Path(&quot;out&quot;) / &quot;scopes&quot; / f&quot;{scope_id}.html&quot;).as_posix()</span>
+<span id="L226" class="line"><span class="line-number">0226</span> </span>
+<span id="L227" class="line"><span class="line-number">0227</span> </span>
+<span id="L228" class="line"><span class="line-number">0228</span> def add_scope(name: str, description: str) -&gt; None:</span>
+<span id="L229" class="line"><span class="line-number">0229</span>     scope_id = slugify(name)</span>
+<span id="L230" class="line"><span class="line-number">0230</span>     db = source_db()</span>
+<span id="L231" class="line"><span class="line-number">0231</span>     if db.execute(&quot;SELECT 1 FROM scopes WHERE id = ? OR lower(name) = lower(?)&quot;, (scope_id, name)).fetchone():</span>
+<span id="L232" class="line"><span class="line-number">0232</span>         db.close()</span>
+<span id="L233" class="line"><span class="line-number">0233</span>         raise ValueError(f&quot;scope already exists: {scope_id}&quot;)</span>
+<span id="L234" class="line"><span class="line-number">0234</span>     db.execute(&quot;INSERT INTO scopes(id, name, description) VALUES (?, ?, ?)&quot;, (scope_id, name, description))</span>
+<span id="L235" class="line"><span class="line-number">0235</span>     db.commit()</span>
+<span id="L236" class="line"><span class="line-number">0236</span>     db.close()</span>
+<span id="L237" class="line"><span class="line-number">0237</span>     render()</span>
+<span id="L238" class="line"><span class="line-number">0238</span>     print(scope_route(scope_id))</span>
+<span id="L239" class="line"><span class="line-number">0239</span> </span>
+<span id="L240" class="line"><span class="line-number">0240</span> </span>
+<span id="L241" class="line"><span class="line-number">0241</span> def list_scopes() -&gt; None:</span>
+<span id="L242" class="line"><span class="line-number">0242</span>     db = source_db()</span>
+<span id="L243" class="line"><span class="line-number">0243</span>     for scope_id, name in db.execute(&quot;SELECT id, name FROM scopes ORDER BY lower(name), id&quot;):</span>
+<span id="L244" class="line"><span class="line-number">0244</span>         print(f&quot;{name}\t{scope_route(scope_id)}&quot;)</span>
+<span id="L245" class="line"><span class="line-number">0245</span>     db.close()</span>
+<span id="L246" class="line"><span class="line-number">0246</span> </span>
+<span id="L247" class="line"><span class="line-number">0247</span> </span>
+<span id="L248" class="line"><span class="line-number">0248</span> def show_scope(name: str) -&gt; None:</span>
+<span id="L249" class="line"><span class="line-number">0249</span>     db = source_db()</span>
+<span id="L250" class="line"><span class="line-number">0250</span>     row = db.execute(</span>
+<span id="L251" class="line"><span class="line-number">0251</span>         &quot;SELECT id FROM scopes WHERE lower(id) = lower(?) OR lower(name) = lower(?)&quot;,</span>
+<span id="L252" class="line"><span class="line-number">0252</span>         (name, name),</span>
+<span id="L253" class="line"><span class="line-number">0253</span>     ).fetchone()</span>
+<span id="L254" class="line"><span class="line-number">0254</span>     if not row:</span>
+<span id="L255" class="line"><span class="line-number">0255</span>         db.close()</span>
+<span id="L256" class="line"><span class="line-number">0256</span>         raise ValueError(f&quot;scope not found: {name}&quot;)</span>
+<span id="L257" class="line"><span class="line-number">0257</span>     print(_scope_markdown(db, row[0]), end=&quot;&quot;)</span>
+<span id="L258" class="line"><span class="line-number">0258</span>     db.close()</span>
+<span id="L259" class="line"><span class="line-number">0259</span> </span>
+<span id="L260" class="line"><span class="line-number">0260</span> </span>
+<span id="L261" class="line"><span class="line-number">0261</span> def update_scope(name: str, description: str | None) -&gt; None:</span>
+<span id="L262" class="line"><span class="line-number">0262</span>     db = source_db()</span>
+<span id="L263" class="line"><span class="line-number">0263</span>     row = db.execute(</span>
+<span id="L264" class="line"><span class="line-number">0264</span>         &quot;SELECT id FROM scopes WHERE lower(id) = lower(?) OR lower(name) = lower(?)&quot;,</span>
+<span id="L265" class="line"><span class="line-number">0265</span>         (name, name),</span>
+<span id="L266" class="line"><span class="line-number">0266</span>     ).fetchone()</span>
+<span id="L267" class="line"><span class="line-number">0267</span>     if not row:</span>
+<span id="L268" class="line"><span class="line-number">0268</span>         db.close()</span>
+<span id="L269" class="line"><span class="line-number">0269</span>         raise ValueError(f&quot;scope not found: {name}&quot;)</span>
+<span id="L270" class="line"><span class="line-number">0270</span>     if description is not None:</span>
+<span id="L271" class="line"><span class="line-number">0271</span>         db.execute(&quot;UPDATE scopes SET description = ? WHERE id = ?&quot;, (description, row[0]))</span>
+<span id="L272" class="line"><span class="line-number">0272</span>     db.commit()</span>
+<span id="L273" class="line"><span class="line-number">0273</span>     db.close()</span>
+<span id="L274" class="line"><span class="line-number">0274</span>     render()</span>
+<span id="L275" class="line"><span class="line-number">0275</span> </span>
+<span id="L276" class="line"><span class="line-number">0276</span> </span>
+<span id="L277" class="line"><span class="line-number">0277</span> def delete_scope(name: str) -&gt; None:</span>
+<span id="L278" class="line"><span class="line-number">0278</span>     db = source_db()</span>
+<span id="L279" class="line"><span class="line-number">0279</span>     row = db.execute(</span>
+<span id="L280" class="line"><span class="line-number">0280</span>         &quot;SELECT id FROM scopes WHERE lower(id) = lower(?) OR lower(name) = lower(?)&quot;,</span>
+<span id="L281" class="line"><span class="line-number">0281</span>         (name, name),</span>
+<span id="L282" class="line"><span class="line-number">0282</span>     ).fetchone()</span>
+<span id="L283" class="line"><span class="line-number">0283</span>     if not row:</span>
+<span id="L284" class="line"><span class="line-number">0284</span>         db.close()</span>
+<span id="L285" class="line"><span class="line-number">0285</span>         raise ValueError(f&quot;scope not found: {name}&quot;)</span>
+<span id="L286" class="line"><span class="line-number">0286</span>     scope_id = row[0]</span>
+<span id="L287" class="line"><span class="line-number">0287</span>     used_by_terms = db.execute(&quot;SELECT 1 FROM term_scopes WHERE scope_id = ? LIMIT 1&quot;, (scope_id,)).fetchone()</span>
+<span id="L288" class="line"><span class="line-number">0288</span>     used_by_requirements = db.execute(&quot;SELECT 1 FROM requirement_sources WHERE scope_id = ? LIMIT 1&quot;, (scope_id,)).fetchone()</span>
+<span id="L289" class="line"><span class="line-number">0289</span>     if used_by_terms or used_by_requirements:</span>
+<span id="L290" class="line"><span class="line-number">0290</span>         db.close()</span>
+<span id="L291" class="line"><span class="line-number">0291</span>         raise ValueError(f&quot;scope is in use: {scope_id}&quot;)</span>
+<span id="L292" class="line"><span class="line-number">0292</span>     db.execute(&quot;DELETE FROM scopes WHERE id = ?&quot;, (scope_id,))</span>
+<span id="L293" class="line"><span class="line-number">0293</span>     db.commit()</span>
+<span id="L294" class="line"><span class="line-number">0294</span>     db.close()</span>
+<span id="L295" class="line"><span class="line-number">0295</span>     render()</span>
+<span id="L296" class="line"><span class="line-number">0296</span> </span>
+<span id="L297" class="line"><span class="line-number">0297</span> </span>
+<span id="L298" class="line"><span class="line-number">0298</span> def add_term(name: str, definition: str, layer: str | None, scopes: list[str] | None = None) -&gt; None:</span>
+<span id="L299" class="line"><span class="line-number">0299</span>     path = term_path(name)</span>
+<span id="L300" class="line"><span class="line-number">0300</span>     db = source_db()</span>
+<span id="L301" class="line"><span class="line-number">0301</span>     if db.execute(&quot;SELECT 1 FROM terms WHERE lower(name) = lower(?)&quot;, (name,)).fetchone():</span>
+<span id="L302" class="line"><span class="line-number">0302</span>         db.close()</span>
+<span id="L303" class="line"><span class="line-number">0303</span>         raise ValueError(f&quot;term already exists: out/{path.relative_to(ROOT).with_suffix(&#x27;.html&#x27;).as_posix()}&quot;)</span>
+<span id="L304" class="line"><span class="line-number">0304</span>     if layer and not db.execute(&quot;SELECT 1 FROM layers WHERE id = ?&quot;, (layer,)).fetchone():</span>
+<span id="L305" class="line"><span class="line-number">0305</span>         db.close()</span>
+<span id="L306" class="line"><span class="line-number">0306</span>         raise ValueError(f&quot;unknown layer: {layer}&quot;)</span>
+<span id="L307" class="line"><span class="line-number">0307</span>     scope_ids_to_add = scope_ids(db, scopes or [])</span>
+<span id="L308" class="line"><span class="line-number">0308</span>     relative = path.relative_to(ROOT).as_posix()</span>
+<span id="L309" class="line"><span class="line-number">0309</span>     db.execute(&quot;INSERT INTO terms(path, name, definition) VALUES (?, ?, ?)&quot;, (relative, name, definition))</span>
+<span id="L310" class="line"><span class="line-number">0310</span>     if layer:</span>
+<span id="L311" class="line"><span class="line-number">0311</span>         db.execute(&quot;INSERT INTO term_layers(term_path, layer_id) VALUES (?, ?)&quot;, (relative, layer))</span>
+<span id="L312" class="line"><span class="line-number">0312</span>     for scope_id in scope_ids_to_add:</span>
+<span id="L313" class="line"><span class="line-number">0313</span>         db.execute(&quot;INSERT INTO term_scopes(term_path, scope_id) VALUES (?, ?)&quot;, (relative, scope_id))</span>
+<span id="L314" class="line"><span class="line-number">0314</span>     db.commit()</span>
+<span id="L315" class="line"><span class="line-number">0315</span>     db.close()</span>
+<span id="L316" class="line"><span class="line-number">0316</span>     render()</span>
+<span id="L317" class="line"><span class="line-number">0317</span>     print((Path(&quot;out&quot;) / path.relative_to(ROOT).with_suffix(&quot;.html&quot;)).as_posix())</span>
+<span id="L318" class="line"><span class="line-number">0318</span> </span>
+<span id="L319" class="line"><span class="line-number">0319</span> </span>
+<span id="L320" class="line"><span class="line-number">0320</span> def list_terms() -&gt; None:</span>
+<span id="L321" class="line"><span class="line-number">0321</span>     db = source_db()</span>
+<span id="L322" class="line"><span class="line-number">0322</span>     for name, path in db.execute(&quot;SELECT name, path FROM terms ORDER BY lower(name), path&quot;):</span>
+<span id="L323" class="line"><span class="line-number">0323</span>         print(f&quot;{name}\t{(Path(&#x27;out&#x27;) / Path(path).with_suffix(&#x27;.html&#x27;)).as_posix()}&quot;)</span>
+<span id="L324" class="line"><span class="line-number">0324</span>     db.close()</span>
+<span id="L325" class="line"><span class="line-number">0325</span> </span>
+<span id="L326" class="line"><span class="line-number">0326</span> </span>
+<span id="L327" class="line"><span class="line-number">0327</span> def show_term(name: str) -&gt; None:</span>
+<span id="L328" class="line"><span class="line-number">0328</span>     db = source_db()</span>
+<span id="L329" class="line"><span class="line-number">0329</span>     row = db.execute(&quot;SELECT path FROM terms WHERE lower(name) = lower(?)&quot;, (name,)).fetchone()</span>
+<span id="L330" class="line"><span class="line-number">0330</span>     if not row:</span>
+<span id="L331" class="line"><span class="line-number">0331</span>         db.close()</span>
+<span id="L332" class="line"><span class="line-number">0332</span>         raise ValueError(f&quot;term not found: {name}&quot;)</span>
+<span id="L333" class="line"><span class="line-number">0333</span>     print(_term_markdown(db, row[0]), end=&quot;&quot;)</span>
+<span id="L334" class="line"><span class="line-number">0334</span>     db.close()</span>
+<span id="L335" class="line"><span class="line-number">0335</span> </span>
+<span id="L336" class="line"><span class="line-number">0336</span> </span>
+<span id="L337" class="line"><span class="line-number">0337</span> def update_term(</span>
+<span id="L338" class="line"><span class="line-number">0338</span>     name: str,</span>
+<span id="L339" class="line"><span class="line-number">0339</span>     definition: str | None,</span>
+<span id="L340" class="line"><span class="line-number">0340</span>     layer: str | None,</span>
+<span id="L341" class="line"><span class="line-number">0341</span>     scopes: list[str] | None = None,</span>
+<span id="L342" class="line"><span class="line-number">0342</span> ) -&gt; None:</span>
+<span id="L343" class="line"><span class="line-number">0343</span>     db = source_db()</span>
+<span id="L344" class="line"><span class="line-number">0344</span>     row = db.execute(&quot;SELECT path FROM terms WHERE lower(name) = lower(?)&quot;, (name,)).fetchone()</span>
+<span id="L345" class="line"><span class="line-number">0345</span>     if not row:</span>
+<span id="L346" class="line"><span class="line-number">0346</span>         db.close()</span>
+<span id="L347" class="line"><span class="line-number">0347</span>         raise ValueError(f&quot;term not found: {name}&quot;)</span>
+<span id="L348" class="line"><span class="line-number">0348</span>     if definition is not None:</span>
+<span id="L349" class="line"><span class="line-number">0349</span>         db.execute(&quot;UPDATE terms SET definition = ? WHERE path = ?&quot;, (definition, row[0]))</span>
+<span id="L350" class="line"><span class="line-number">0350</span>     if layer is not None:</span>
+<span id="L351" class="line"><span class="line-number">0351</span>         if not db.execute(&quot;SELECT 1 FROM layers WHERE id = ?&quot;, (layer,)).fetchone():</span>
+<span id="L352" class="line"><span class="line-number">0352</span>             db.close()</span>
+<span id="L353" class="line"><span class="line-number">0353</span>             raise ValueError(f&quot;unknown layer: {layer}&quot;)</span>
+<span id="L354" class="line"><span class="line-number">0354</span>         db.execute(&quot;DELETE FROM term_layers WHERE term_path = ?&quot;, (row[0],))</span>
+<span id="L355" class="line"><span class="line-number">0355</span>         db.execute(&quot;INSERT INTO term_layers(term_path, layer_id) VALUES (?, ?)&quot;, (row[0], layer))</span>
+<span id="L356" class="line"><span class="line-number">0356</span>     if scopes is not None:</span>
+<span id="L357" class="line"><span class="line-number">0357</span>         scope_ids_to_set = scope_ids(db, scopes)</span>
+<span id="L358" class="line"><span class="line-number">0358</span>         db.execute(&quot;DELETE FROM term_scopes WHERE term_path = ?&quot;, (row[0],))</span>
+<span id="L359" class="line"><span class="line-number">0359</span>         for scope_id in scope_ids_to_set:</span>
+<span id="L360" class="line"><span class="line-number">0360</span>             db.execute(&quot;INSERT INTO term_scopes(term_path, scope_id) VALUES (?, ?)&quot;, (row[0], scope_id))</span>
+<span id="L361" class="line"><span class="line-number">0361</span>     db.commit()</span>
+<span id="L362" class="line"><span class="line-number">0362</span>     db.close()</span>
+<span id="L363" class="line"><span class="line-number">0363</span>     render()</span>
+<span id="L364" class="line"><span class="line-number">0364</span> </span>
+<span id="L365" class="line"><span class="line-number">0365</span> </span>
+<span id="L366" class="line"><span class="line-number">0366</span> def delete_term(name: str) -&gt; None:</span>
+<span id="L367" class="line"><span class="line-number">0367</span>     db = source_db()</span>
+<span id="L368" class="line"><span class="line-number">0368</span>     row = db.execute(&quot;SELECT path FROM terms WHERE lower(name) = lower(?)&quot;, (name,)).fetchone()</span>
+<span id="L369" class="line"><span class="line-number">0369</span>     if not row:</span>
+<span id="L370" class="line"><span class="line-number">0370</span>         db.close()</span>
+<span id="L371" class="line"><span class="line-number">0371</span>         raise ValueError(f&quot;term not found: {name}&quot;)</span>
+<span id="L372" class="line"><span class="line-number">0372</span>     relative = row[0]</span>
+<span id="L373" class="line"><span class="line-number">0373</span>     db.execute(&quot;DELETE FROM term_layers WHERE term_path = ?&quot;, (relative,))</span>
+<span id="L374" class="line"><span class="line-number">0374</span>     db.execute(&quot;DELETE FROM term_scopes WHERE term_path = ?&quot;, (relative,))</span>
+<span id="L375" class="line"><span class="line-number">0375</span>     db.execute(&quot;DELETE FROM term_requirements WHERE term_path = ?&quot;, (relative,))</span>
+<span id="L376" class="line"><span class="line-number">0376</span>     db.execute(&quot;DELETE FROM term_related WHERE term_path = ? OR related_path = ?&quot;, (relative, relative))</span>
+<span id="L377" class="line"><span class="line-number">0377</span>     db.execute(&quot;DELETE FROM terms WHERE path = ?&quot;, (relative,))</span>
+<span id="L378" class="line"><span class="line-number">0378</span>     db.commit()</span>
+<span id="L379" class="line"><span class="line-number">0379</span>     db.close()</span>
+<span id="L380" class="line"><span class="line-number">0380</span>     render()</span>
+<span id="L381" class="line"><span class="line-number">0381</span> </span>
+<span id="L382" class="line"><span class="line-number">0382</span> </span>
+<span id="L383" class="line"><span class="line-number">0383</span> def layer_path(name: str) -&gt; Path:</span>
+<span id="L384" class="line"><span class="line-number">0384</span>     return ROOT / &quot;layers&quot; / f&quot;{slugify(name)}.md&quot;</span>
+<span id="L385" class="line"><span class="line-number">0385</span> </span>
+<span id="L386" class="line"><span class="line-number">0386</span> </span>
+<span id="L387" class="line"><span class="line-number">0387</span> def create_layer(name: str, description: str) -&gt; None:</span>
+<span id="L388" class="line"><span class="line-number">0388</span>     layer_id = slugify(name)</span>
+<span id="L389" class="line"><span class="line-number">0389</span>     db = source_db()</span>
+<span id="L390" class="line"><span class="line-number">0390</span>     if db.execute(&quot;SELECT 1 FROM layers WHERE id = ?&quot;, (layer_id,)).fetchone():</span>
+<span id="L391" class="line"><span class="line-number">0391</span>         db.close()</span>
+<span id="L392" class="line"><span class="line-number">0392</span>         raise ValueError(f&quot;layer already exists: {layer_id}&quot;)</span>
+<span id="L393" class="line"><span class="line-number">0393</span>     db.execute(&quot;INSERT INTO layers(id, title, description) VALUES (?, ?, ?)&quot;, (layer_id, layer_id, description))</span>
+<span id="L394" class="line"><span class="line-number">0394</span>     db.commit()</span>
+<span id="L395" class="line"><span class="line-number">0395</span>     db.close()</span>
+<span id="L396" class="line"><span class="line-number">0396</span>     render()</span>
+<span id="L397" class="line"><span class="line-number">0397</span> </span>
+<span id="L398" class="line"><span class="line-number">0398</span> </span>
+<span id="L399" class="line"><span class="line-number">0399</span> def list_layers() -&gt; None:</span>
+<span id="L400" class="line"><span class="line-number">0400</span>     db = source_db()</span>
+<span id="L401" class="line"><span class="line-number">0401</span>     for layer_id, title in db.execute(&quot;SELECT id, title FROM layers ORDER BY id&quot;):</span>
+<span id="L402" class="line"><span class="line-number">0402</span>         print(f&quot;{title}\t{ROOT / &#x27;layers&#x27; / (layer_id + &#x27;.md&#x27;)}&quot;)</span>
+<span id="L403" class="line"><span class="line-number">0403</span>     db.close()</span>
+<span id="L404" class="line"><span class="line-number">0404</span> </span>
+<span id="L405" class="line"><span class="line-number">0405</span> </span>
+<span id="L406" class="line"><span class="line-number">0406</span> def list_lexemes() -&gt; None:</span>
+<span id="L407" class="line"><span class="line-number">0407</span>     db = source_db()</span>
+<span id="L408" class="line"><span class="line-number">0408</span>     for row in db.execute(</span>
+<span id="L409" class="line"><span class="line-number">0409</span>         &quot;SELECT id, lemma, language, category, COALESCE(term_path, &#x27;&#x27;) &quot;</span>
+<span id="L410" class="line"><span class="line-number">0410</span>         &quot;FROM lexemes ORDER BY lower(lemma), id&quot;</span>
+<span id="L411" class="line"><span class="line-number">0411</span>     ):</span>
+<span id="L412" class="line"><span class="line-number">0412</span>         print(&quot;\t&quot;.join(str(value) for value in row))</span>
+<span id="L413" class="line"><span class="line-number">0413</span>     db.close()</span>
+<span id="L414" class="line"><span class="line-number">0414</span> def db_status() -&gt; None:</span>
+<span id="L415" class="line"><span class="line-number">0415</span>     db = source_db()</span>
+<span id="L416" class="line"><span class="line-number">0416</span>     for key, value in db.execute(&quot;SELECT key, value FROM requi_state ORDER BY key&quot;):</span>
+<span id="L417" class="line"><span class="line-number">0417</span>         print(f&quot;{key}\t{value}&quot;)</span>
+<span id="L418" class="line"><span class="line-number">0418</span>     db.close()</span>
+<span id="L419" class="line"><span class="line-number">0419</span> </span>
+<span id="L420" class="line"><span class="line-number">0420</span> </span>
+<span id="L421" class="line"><span class="line-number">0421</span> def read_layer(name: str) -&gt; None:</span>
+<span id="L422" class="line"><span class="line-number">0422</span>     db = source_db()</span>
+<span id="L423" class="line"><span class="line-number">0423</span>     layer_id = slugify(name)</span>
+<span id="L424" class="line"><span class="line-number">0424</span>     if not db.execute(&quot;SELECT 1 FROM layers WHERE id = ?&quot;, (layer_id,)).fetchone():</span>
+<span id="L425" class="line"><span class="line-number">0425</span>         db.close()</span>
+<span id="L426" class="line"><span class="line-number">0426</span>         raise ValueError(f&quot;layer not found: {name}&quot;)</span>
+<span id="L427" class="line"><span class="line-number">0427</span>     print(_layer_markdown(db, layer_id), end=&quot;&quot;)</span>
+<span id="L428" class="line"><span class="line-number">0428</span>     db.close()</span>
+<span id="L429" class="line"><span class="line-number">0429</span> </span>
+<span id="L430" class="line"><span class="line-number">0430</span> </span>
+<span id="L431" class="line"><span class="line-number">0431</span> def update_layer(name: str, description: str | None) -&gt; None:</span>
+<span id="L432" class="line"><span class="line-number">0432</span>     db = source_db()</span>
+<span id="L433" class="line"><span class="line-number">0433</span>     layer_id = slugify(name)</span>
+<span id="L434" class="line"><span class="line-number">0434</span>     if not db.execute(&quot;SELECT 1 FROM layers WHERE id = ?&quot;, (layer_id,)).fetchone():</span>
+<span id="L435" class="line"><span class="line-number">0435</span>         db.close()</span>
+<span id="L436" class="line"><span class="line-number">0436</span>         raise ValueError(f&quot;layer not found: {name}&quot;)</span>
+<span id="L437" class="line"><span class="line-number">0437</span>     if description is not None:</span>
+<span id="L438" class="line"><span class="line-number">0438</span>         db.execute(&quot;UPDATE layers SET description = ? WHERE id = ?&quot;, (description, layer_id))</span>
+<span id="L439" class="line"><span class="line-number">0439</span>     db.commit()</span>
+<span id="L440" class="line"><span class="line-number">0440</span>     db.close()</span>
+<span id="L441" class="line"><span class="line-number">0441</span>     render()</span>
+<span id="L442" class="line"><span class="line-number">0442</span> </span>
+<span id="L443" class="line"><span class="line-number">0443</span> </span>
+<span id="L444" class="line"><span class="line-number">0444</span> def delete_layer(name: str) -&gt; None:</span>
+<span id="L445" class="line"><span class="line-number">0445</span>     db = source_db()</span>
+<span id="L446" class="line"><span class="line-number">0446</span>     layer_id = slugify(name)</span>
+<span id="L447" class="line"><span class="line-number">0447</span>     if not db.execute(&quot;SELECT 1 FROM layers WHERE id = ?&quot;, (layer_id,)).fetchone():</span>
+<span id="L448" class="line"><span class="line-number">0448</span>         db.close()</span>
+<span id="L449" class="line"><span class="line-number">0449</span>         raise ValueError(f&quot;layer not found: {name}&quot;)</span>
+<span id="L450" class="line"><span class="line-number">0450</span>     if db.execute(&quot;SELECT 1 FROM term_layers WHERE layer_id = ? LIMIT 1&quot;, (layer_id,)).fetchone():</span>
+<span id="L451" class="line"><span class="line-number">0451</span>         db.close()</span>
+<span id="L452" class="line"><span class="line-number">0452</span>         raise ValueError(f&quot;layer is still assigned to terms: {name}&quot;)</span>
+<span id="L453" class="line"><span class="line-number">0453</span>     db.execute(&quot;DELETE FROM layers WHERE id = ?&quot;, (layer_id,))</span>
+<span id="L454" class="line"><span class="line-number">0454</span>     db.commit()</span>
+<span id="L455" class="line"><span class="line-number">0455</span>     db.close()</span>
+<span id="L456" class="line"><span class="line-number">0456</span>     render()</span>
+<span id="L457" class="line"><span class="line-number">0457</span> </span>
+<span id="L458" class="line"><span class="line-number">0458</span> </span>
+<span id="L459" class="line"><span class="line-number">0459</span> def list_db_views() -&gt; None:</span>
+<span id="L460" class="line"><span class="line-number">0460</span>     db = sqlite3.connect(ROOT / &quot;requi.db&quot;)</span>
+<span id="L461" class="line"><span class="line-number">0461</span>     for name, sql in db.execute(&quot;SELECT name, sql FROM sqlite_master WHERE type = &#x27;view&#x27; ORDER BY name&quot;):</span>
+<span id="L462" class="line"><span class="line-number">0462</span>         print(f&quot;{name}\t{sql}&quot;)</span>
+<span id="L463" class="line"><span class="line-number">0463</span>     db.close()</span>
+<span id="L464" class="line"><span class="line-number">0464</span> </span>
+<span id="L465" class="line"><span class="line-number">0465</span> </span>
+<span id="L466" class="line"><span class="line-number">0466</span> </span>
+<span id="L467" class="line"><span class="line-number">0467</span> </span>
+<span id="L468" class="line"><span class="line-number">0468</span> def check() -&gt; int:</span>
+<span id="L469" class="line"><span class="line-number">0469</span>     errors: list[str] = []</span>
+<span id="L470" class="line"><span class="line-number">0470</span>     db = source_db()</span>
+<span id="L471" class="line"><span class="line-number">0471</span>     state = db.execute(&quot;SELECT value FROM requi_state WHERE key = &#x27;source_mode&#x27;&quot;).fetchone()</span>
+<span id="L472" class="line"><span class="line-number">0472</span>     if not state or state[0] != &quot;sqlite&quot;:</span>
+<span id="L473" class="line"><span class="line-number">0473</span>         errors.append(&quot;requi_state source_mode is not sqlite&quot;)</span>
+<span id="L474" class="line"><span class="line-number">0474</span>     term_paths = {path for (path,) in db.execute(&quot;SELECT path FROM terms&quot;)}</span>
+<span id="L475" class="line"><span class="line-number">0475</span>     layer_ids = {layer_id for (layer_id,) in db.execute(&quot;SELECT id FROM layers&quot;)}</span>
+<span id="L476" class="line"><span class="line-number">0476</span>     scope_ids_set = {scope_id for (scope_id,) in db.execute(&quot;SELECT id FROM scopes&quot;)}</span>
+<span id="L477" class="line"><span class="line-number">0477</span>     requirement_ids = {requirement_id for (requirement_id,) in db.execute(&quot;SELECT id FROM requirements&quot;)}</span>
+<span id="L478" class="line"><span class="line-number">0478</span>     for path in term_paths:</span>
+<span id="L479" class="line"><span class="line-number">0479</span>         for (layer_id,) in db.execute(&quot;SELECT layer_id FROM term_layers WHERE term_path = ?&quot;, (path,)):</span>
+<span id="L480" class="line"><span class="line-number">0480</span>             if layer_id not in layer_ids:</span>
+<span id="L481" class="line"><span class="line-number">0481</span>                 errors.append(f&quot;{path}: missing layer {layer_id}&quot;)</span>
+<span id="L482" class="line"><span class="line-number">0482</span>         for (scope_id,) in db.execute(&quot;SELECT scope_id FROM term_scopes WHERE term_path = ?&quot;, (path,)):</span>
+<span id="L483" class="line"><span class="line-number">0483</span>             if scope_id not in scope_ids_set:</span>
+<span id="L484" class="line"><span class="line-number">0484</span>                 errors.append(f&quot;{path}: missing scope {scope_id}&quot;)</span>
+<span id="L485" class="line"><span class="line-number">0485</span>         for (requirement_id,) in db.execute(&quot;SELECT requirement_id FROM term_requirements WHERE term_path = ?&quot;, (path,)):</span>
+<span id="L486" class="line"><span class="line-number">0486</span>             if requirement_id not in requirement_ids:</span>
+<span id="L487" class="line"><span class="line-number">0487</span>                 errors.append(f&quot;{path}: missing requirement {requirement_id}&quot;)</span>
+<span id="L488" class="line"><span class="line-number">0488</span>         for (related_path,) in db.execute(&quot;SELECT related_path FROM term_related WHERE term_path = ?&quot;, (path,)):</span>
+<span id="L489" class="line"><span class="line-number">0489</span>             if related_path not in term_paths:</span>
+<span id="L490" class="line"><span class="line-number">0490</span>                 errors.append(f&quot;{path}: missing related term {related_path}&quot;)</span>
+<span id="L491" class="line"><span class="line-number">0491</span>     for (scope_id,) in db.execute(&quot;SELECT scope_id FROM requirement_sources WHERE scope_id IS NOT NULL&quot;):</span>
+<span id="L492" class="line"><span class="line-number">0492</span>         if scope_id not in scope_ids_set:</span>
+<span id="L493" class="line"><span class="line-number">0493</span>             errors.append(f&quot;requirement source: missing scope {scope_id}&quot;)</span>
+<span id="L494" class="line"><span class="line-number">0494</span>     for layer_id in layer_ids:</span>
+<span id="L495" class="line"><span class="line-number">0495</span>         if not (ROOT / &quot;layers&quot; / f&quot;{layer_id}.md&quot;).exists():</span>
+<span id="L496" class="line"><span class="line-number">0496</span>             errors.append(f&quot;missing generated layer: layers/{layer_id}.md&quot;)</span>
+<span id="L497" class="line"><span class="line-number">0497</span>     if not (ROOT / &quot;requirements.md&quot;).exists():</span>
+<span id="L498" class="line"><span class="line-number">0498</span>         errors.append(&quot;missing generated requirements.md&quot;)</span>
+<span id="L499" class="line"><span class="line-number">0499</span>     referenced = db.execute(&quot;SELECT COUNT(DISTINCT requirement_id) FROM term_requirements&quot;).fetchone()[0]</span>
+<span id="L500" class="line"><span class="line-number">0500</span>     errors.extend(markdown_database_differences(db))</span>
+<span id="L501" class="line"><span class="line-number">0501</span>     db.close()</span>
+<span id="L502" class="line"><span class="line-number">0502</span>     if errors:</span>
+<span id="L503" class="line"><span class="line-number">0503</span>         print(&quot;CHECK FAILED&quot;)</span>
+<span id="L504" class="line"><span class="line-number">0504</span>         print(&quot;\n&quot;.join(f&quot;- {error}&quot; for error in errors))</span>
+<span id="L505" class="line"><span class="line-number">0505</span>         return 1</span>
+<span id="L506" class="line"><span class="line-number">0506</span>     print(</span>
+<span id="L507" class="line"><span class="line-number">0507</span>         f&quot;CHECK OK: {len(term_paths)} terms, {len(layer_ids)} layers, &quot;</span>
+<span id="L508" class="line"><span class="line-number">0508</span>         f&quot;{len(scope_ids_set)} scopes, {referenced} referenced requirements&quot;</span>
+<span id="L509" class="line"><span class="line-number">0509</span>     )</span>
+<span id="L510" class="line"><span class="line-number">0510</span>     return 0</span>
+<span id="L511" class="line"><span class="line-number">0511</span> def site_status() -&gt; int:</span>
+<span id="L512" class="line"><span class="line-number">0512</span>     return subprocess.run([sys.executable, str(ROOT / &quot;tools&quot; / &quot;site.py&quot;), &quot;--status&quot;], check=False).returncode</span>
+<span id="L513" class="line"><span class="line-number">0513</span> </span>
+<span id="L514" class="line"><span class="line-number">0514</span> def command_catalog() -&gt; dict[str, tuple[str, str]]:</span>
+<span id="L515" class="line"><span class="line-number">0515</span>     if not (ROOT / &quot;requi.db&quot;).exists():</span>
+<span id="L516" class="line"><span class="line-number">0516</span>         build()</span>
+<span id="L517" class="line"><span class="line-number">0517</span>     db = sqlite3.connect(ROOT / &quot;requi.db&quot;)</span>
+<span id="L518" class="line"><span class="line-number">0518</span>     try:</span>
+<span id="L519" class="line"><span class="line-number">0519</span>         rows = db.execute(&quot;SELECT name, purpose, usage FROM v_commands GROUP BY name ORDER BY name&quot;).fetchall()</span>
+<span id="L520" class="line"><span class="line-number">0520</span>     except sqlite3.OperationalError:</span>
+<span id="L521" class="line"><span class="line-number">0521</span>         db.close()</span>
+<span id="L522" class="line"><span class="line-number">0522</span>         build()</span>
+<span id="L523" class="line"><span class="line-number">0523</span>         db = sqlite3.connect(ROOT / &quot;requi.db&quot;)</span>
+<span id="L524" class="line"><span class="line-number">0524</span>         rows = db.execute(&quot;SELECT name, purpose, usage FROM v_commands GROUP BY name ORDER BY name&quot;).fetchall()</span>
+<span id="L525" class="line"><span class="line-number">0525</span>     db.close()</span>
+<span id="L526" class="line"><span class="line-number">0526</span>     return {name: (purpose, usage) for name, purpose, usage in rows}</span>
+<span id="L527" class="line"><span class="line-number">0527</span> </span>
+<span id="L528" class="line"><span class="line-number">0528</span> </span>
+<span id="L529" class="line"><span class="line-number">0529</span> def main() -&gt; int:</span>
+<span id="L530" class="line"><span class="line-number">0530</span>     catalog = command_catalog()</span>
+<span id="L531" class="line"><span class="line-number">0531</span>     parser = argparse.ArgumentParser()</span>
+<span id="L532" class="line"><span class="line-number">0532</span>     sub = parser.add_subparsers(dest=&quot;command&quot;, required=True)</span>
+<span id="L533" class="line"><span class="line-number">0533</span>     sub.add_parser(&quot;build&quot;)</span>
+<span id="L534" class="line"><span class="line-number">0534</span>     sub.add_parser(&quot;render&quot;)</span>
+<span id="L535" class="line"><span class="line-number">0535</span>     sub.add_parser(&quot;check&quot;)</span>
+<span id="L536" class="line"><span class="line-number">0536</span>     sub.add_parser(&quot;status&quot;)</span>
+<span id="L537" class="line"><span class="line-number">0537</span>     query = sub.add_parser(&quot;q&quot;)</span>
+<span id="L538" class="line"><span class="line-number">0538</span>     ast = sub.add_parser(&quot;ast&quot;, help=&quot;Inspect command structure or emit parser-construction code&quot;)</span>
+<span id="L539" class="line"><span class="line-number">0539</span>     ast.add_argument(&quot;name&quot;, nargs=&quot;?&quot;)</span>
+<span id="L540" class="line"><span class="line-number">0540</span>     ast.add_argument(&quot;--format&quot;, choices=(&quot;tree&quot;, &quot;json&quot;, &quot;python&quot;), default=&quot;tree&quot;)</span>
+<span id="L541" class="line"><span class="line-number">0541</span>     query.add_argument(&quot;sql&quot;)</span>
+<span id="L542" class="line"><span class="line-number">0542</span>     database = sub.add_parser(&quot;db&quot;, help=&quot;Inspect database-backed entities&quot;)</span>
+<span id="L543" class="line"><span class="line-number">0543</span>     database_sub = database.add_subparsers(dest=&quot;db_action&quot;, required=True)</span>
+<span id="L544" class="line"><span class="line-number">0544</span>     database_list = database_sub.add_parser(&quot;list&quot;, help=&quot;List database entities&quot;)</span>
+<span id="L545" class="line"><span class="line-number">0545</span>     database_list.add_argument(&quot;entity&quot;, choices=[&quot;lexemes&quot;])</span>
+<span id="L546" class="line"><span class="line-number">0546</span>     database_sub.add_parser(&quot;status&quot;, help=&quot;Show SQLite source-of-truth state&quot;)</span>
+<span id="L547" class="line"><span class="line-number">0547</span>     add = sub.add_parser(&quot;add-term&quot;, help=catalog[&quot;add-term&quot;][0])</span>
+<span id="L548" class="line"><span class="line-number">0548</span>     add.add_argument(&quot;name&quot;)</span>
+<span id="L549" class="line"><span class="line-number">0549</span>     add.add_argument(&quot;--definition&quot;, required=True)</span>
+<span id="L550" class="line"><span class="line-number">0550</span>     add.add_argument(&quot;--layer&quot;)</span>
+<span id="L551" class="line"><span class="line-number">0551</span>     add.add_argument(&quot;--scope&quot;, action=&quot;append&quot;)</span>
+<span id="L552" class="line"><span class="line-number">0552</span>     add_scope_parser = sub.add_parser(&quot;add-scope&quot;, help=&quot;Create a scope in SQLite and render its HTML page&quot;)</span>
+<span id="L553" class="line"><span class="line-number">0553</span>     add_scope_parser.add_argument(&quot;name&quot;)</span>
+<span id="L554" class="line"><span class="line-number">0554</span>     add_scope_parser.add_argument(&quot;--description&quot;, default=&quot;&quot;)</span>
+<span id="L555" class="line"><span class="line-number">0555</span>     add_short = sub.add_parser(&quot;add&quot;)</span>
+<span id="L556" class="line"><span class="line-number">0556</span>     add_short.add_argument(&quot;name&quot;, nargs=&quot;+&quot;)</span>
+<span id="L557" class="line"><span class="line-number">0557</span>     add_short.add_argument(&quot;--definition&quot;, default=&quot;&quot;)</span>
+<span id="L558" class="line"><span class="line-number">0558</span>     add_short.add_argument(&quot;--layer&quot;)</span>
+<span id="L559" class="line"><span class="line-number">0559</span>     add_short.add_argument(&quot;--scope&quot;, action=&quot;append&quot;)</span>
+<span id="L560" class="line"><span class="line-number">0560</span>     listing = sub.add_parser(&quot;list-terms&quot;, help=catalog[&quot;list-terms&quot;][0])</span>
+<span id="L561" class="line"><span class="line-number">0561</span>     listing.set_defaults()</span>
+<span id="L562" class="line"><span class="line-number">0562</span>     list_scopes_parser = sub.add_parser(&quot;list-scopes&quot;, help=&quot;List all database scopes and HTML routes&quot;)</span>
+<span id="L563" class="line"><span class="line-number">0563</span>     list_scopes_parser.set_defaults()</span>
+<span id="L564" class="line"><span class="line-number">0564</span>     show = sub.add_parser(&quot;show-term&quot;, help=catalog[&quot;show-term&quot;][0])</span>
+<span id="L565" class="line"><span class="line-number">0565</span>     show.add_argument(&quot;name&quot;)</span>
+<span id="L566" class="line"><span class="line-number">0566</span>     show_scope_parser = sub.add_parser(&quot;show-scope&quot;, help=&quot;Display one database scope as Markdown&quot;)</span>
+<span id="L567" class="line"><span class="line-number">0567</span>     show_scope_parser.add_argument(&quot;name&quot;)</span>
+<span id="L568" class="line"><span class="line-number">0568</span>     update = sub.add_parser(&quot;update-term&quot;, help=catalog[&quot;update-term&quot;][0])</span>
+<span id="L569" class="line"><span class="line-number">0569</span>     update.add_argument(&quot;name&quot;)</span>
+<span id="L570" class="line"><span class="line-number">0570</span>     update.add_argument(&quot;--definition&quot;)</span>
+<span id="L571" class="line"><span class="line-number">0571</span>     update.add_argument(&quot;--layer&quot;)</span>
+<span id="L572" class="line"><span class="line-number">0572</span>     update.add_argument(&quot;--scope&quot;, action=&quot;append&quot;)</span>
+<span id="L573" class="line"><span class="line-number">0573</span>     update_scope_parser = sub.add_parser(&quot;update-scope&quot;, help=&quot;Update a scope in SQLite and render its HTML page&quot;)</span>
+<span id="L574" class="line"><span class="line-number">0574</span>     update_scope_parser.add_argument(&quot;name&quot;)</span>
+<span id="L575" class="line"><span class="line-number">0575</span>     update_scope_parser.add_argument(&quot;--description&quot;)</span>
+<span id="L576" class="line"><span class="line-number">0576</span>     delete = sub.add_parser(&quot;delete-term&quot;, help=catalog[&quot;delete-term&quot;][0])</span>
+<span id="L577" class="line"><span class="line-number">0577</span>     delete.add_argument(&quot;name&quot;)</span>
+<span id="L578" class="line"><span class="line-number">0578</span>     delete_scope_parser = sub.add_parser(&quot;delete-scope&quot;, help=&quot;Delete an unused scope from SQLite and rebuild HTML&quot;)</span>
+<span id="L579" class="line"><span class="line-number">0579</span>     delete_scope_parser.add_argument(&quot;name&quot;)</span>
+<span id="L580" class="line"><span class="line-number">0580</span>     create = sub.add_parser(&quot;create&quot;)</span>
+<span id="L581" class="line"><span class="line-number">0581</span>     create.add_argument(&quot;entity&quot;, choices=[&quot;term&quot;, &quot;layer&quot;, &quot;scope&quot;])</span>
+<span id="L582" class="line"><span class="line-number">0582</span>     create.add_argument(&quot;name&quot;)</span>
+<span id="L583" class="line"><span class="line-number">0583</span>     create.add_argument(&quot;--definition&quot;)</span>
+<span id="L584" class="line"><span class="line-number">0584</span>     create.add_argument(&quot;--description&quot;)</span>
+<span id="L585" class="line"><span class="line-number">0585</span>     create.add_argument(&quot;--layer&quot;)</span>
+<span id="L586" class="line"><span class="line-number">0586</span>     create.add_argument(&quot;--scope&quot;, action=&quot;append&quot;)</span>
+<span id="L587" class="line"><span class="line-number">0587</span>     read = sub.add_parser(&quot;read&quot;)</span>
+<span id="L588" class="line"><span class="line-number">0588</span>     read.add_argument(&quot;entity&quot;, choices=[&quot;term&quot;, &quot;layer&quot;, &quot;scope&quot;, &quot;view&quot;])</span>
+<span id="L589" class="line"><span class="line-number">0589</span>     read.add_argument(&quot;name&quot;, nargs=&quot;?&quot;)</span>
+<span id="L590" class="line"><span class="line-number">0590</span>     update = sub.add_parser(&quot;update&quot;)</span>
+<span id="L591" class="line"><span class="line-number">0591</span>     update.add_argument(&quot;entity&quot;, choices=[&quot;term&quot;, &quot;layer&quot;, &quot;scope&quot;])</span>
+<span id="L592" class="line"><span class="line-number">0592</span>     update.add_argument(&quot;name&quot;)</span>
+<span id="L593" class="line"><span class="line-number">0593</span>     update.add_argument(&quot;--definition&quot;)</span>
+<span id="L594" class="line"><span class="line-number">0594</span>     update.add_argument(&quot;--description&quot;)</span>
+<span id="L595" class="line"><span class="line-number">0595</span>     update.add_argument(&quot;--layer&quot;)</span>
+<span id="L596" class="line"><span class="line-number">0596</span>     update.add_argument(&quot;--scope&quot;, action=&quot;append&quot;)</span>
+<span id="L597" class="line"><span class="line-number">0597</span>     delete = sub.add_parser(&quot;delete&quot;)</span>
+<span id="L598" class="line"><span class="line-number">0598</span>     delete.add_argument(&quot;entity&quot;, choices=[&quot;term&quot;, &quot;layer&quot;, &quot;scope&quot;])</span>
+<span id="L599" class="line"><span class="line-number">0599</span>     delete.add_argument(&quot;name&quot;)</span>
+<span id="L600" class="line"><span class="line-number">0600</span>     list_entity = sub.add_parser(&quot;list&quot;)</span>
+<span id="L601" class="line"><span class="line-number">0601</span>     list_entity.add_argument(&quot;entity&quot;, choices=[&quot;term&quot;, &quot;layer&quot;, &quot;scope&quot;, &quot;lexeme&quot;, &quot;view&quot;])</span>
+<span id="L602" class="line"><span class="line-number">0602</span>     upd = sub.add_parser(&quot;upd&quot;)</span>
+<span id="L603" class="line"><span class="line-number">0603</span>     upd.add_argument(&quot;name&quot;)</span>
+<span id="L604" class="line"><span class="line-number">0604</span>     upd.add_argument(&quot;--definition&quot;)</span>
+<span id="L605" class="line"><span class="line-number">0605</span>     upd.add_argument(&quot;--layer&quot;)</span>
+<span id="L606" class="line"><span class="line-number">0606</span>     upd.add_argument(&quot;--scope&quot;, action=&quot;append&quot;)</span>
+<span id="L607" class="line"><span class="line-number">0607</span>     short_delete = sub.add_parser(&quot;del&quot;)</span>
+<span id="L608" class="line"><span class="line-number">0608</span>     short_delete.add_argument(&quot;name&quot;, nargs=&quot;+&quot;)</span>
+<span id="L609" class="line"><span class="line-number">0609</span>     args = parser.parse_args()</span>
+<span id="L610" class="line"><span class="line-number">0610</span>     if args.command == &quot;ast&quot;:</span>
+<span id="L611" class="line"><span class="line-number">0611</span>         db = sqlite3.connect(ROOT / &quot;requi.db&quot;)</span>
+<span id="L612" class="line"><span class="line-number">0612</span>         try:</span>
+<span id="L613" class="line"><span class="line-number">0613</span>             commands = select_commands(load_commands(db), args.name)</span>
+<span id="L614" class="line"><span class="line-number">0614</span>         except ValueError as exc:</span>
+<span id="L615" class="line"><span class="line-number">0615</span>             db.close()</span>
+<span id="L616" class="line"><span class="line-number">0616</span>             parser.error(str(exc))</span>
+<span id="L617" class="line"><span class="line-number">0617</span>         db.close()</span>
+<span id="L618" class="line"><span class="line-number">0618</span>         renderer = {&quot;tree&quot;: render_tree, &quot;json&quot;: render_json, &quot;python&quot;: render_argparse}[args.format]</span>
+<span id="L619" class="line"><span class="line-number">0619</span>         print(renderer(commands))</span>
+<span id="L620" class="line"><span class="line-number">0620</span>         return 0</span>
+<span id="L621" class="line"><span class="line-number">0621</span>     if args.command == &quot;db&quot;:</span>
+<span id="L622" class="line"><span class="line-number">0622</span>         if args.db_action == &quot;list&quot; and args.entity == &quot;lexemes&quot;:</span>
+<span id="L623" class="line"><span class="line-number">0623</span>             list_lexemes()</span>
+<span id="L624" class="line"><span class="line-number">0624</span>             return 0</span>
+<span id="L625" class="line"><span class="line-number">0625</span>         if args.db_action == &quot;status&quot;:</span>
+<span id="L626" class="line"><span class="line-number">0626</span>             db_status()</span>
+<span id="L627" class="line"><span class="line-number">0627</span>             return 0</span>
+<span id="L628" class="line"><span class="line-number">0628</span>     if args.command == &quot;add&quot; and args.name and args.name[0].casefold() == &quot;lexeme&quot;:</span>
+<span id="L629" class="line"><span class="line-number">0629</span>         if len(args.name) != 3:</span>
+<span id="L630" class="line"><span class="line-number">0630</span>             raise ValueError(&quot;usage: add lexeme LEMMA CATEGORY&quot;)</span>
+<span id="L631" class="line"><span class="line-number">0631</span>         return subprocess.run(</span>
+<span id="L632" class="line"><span class="line-number">0632</span>             [sys.executable, str(ROOT / &quot;tools&quot; / &quot;wikidata.py&quot;), &quot;--lexeme&quot;, args.name[1], &quot;--category&quot;, args.name[2], &quot;--apply&quot;],</span>
+<span id="L633" class="line"><span class="line-number">0633</span>             check=False,</span>
+<span id="L634" class="line"><span class="line-number">0634</span>         ).returncode</span>
+<span id="L635" class="line"><span class="line-number">0635</span>     if args.command == &quot;add&quot;:</span>
+<span id="L636" class="line"><span class="line-number">0636</span>         if args.name and args.name[0].casefold() == &quot;lexeme&quot;:</span>
+<span id="L637" class="line"><span class="line-number">0637</span>             raise ValueError(&quot;use add lexeme LEMMA CATEGORY&quot;)</span>
+<span id="L638" class="line"><span class="line-number">0638</span>         if args.name and args.name[0].casefold() == &quot;layer&quot;:</span>
+<span id="L639" class="line"><span class="line-number">0639</span>             if len(args.name) &lt; 2:</span>
+<span id="L640" class="line"><span class="line-number">0640</span>                 raise ValueError(&quot;usage: add layer NAME&quot;)</span>
+<span id="L641" class="line"><span class="line-number">0641</span>             create_layer(&quot; &quot;.join(args.name[1:]), args.definition)</span>
+<span id="L642" class="line"><span class="line-number">0642</span>             return 0</span>
+<span id="L643" class="line"><span class="line-number">0643</span>         if args.name and args.name[0].casefold() == &quot;scope&quot;:</span>
+<span id="L644" class="line"><span class="line-number">0644</span>             if len(args.name) &lt; 2:</span>
+<span id="L645" class="line"><span class="line-number">0645</span>                 raise ValueError(&quot;usage: add scope NAME&quot;)</span>
+<span id="L646" class="line"><span class="line-number">0646</span>             add_scope(&quot; &quot;.join(args.name[1:]), args.definition)</span>
+<span id="L647" class="line"><span class="line-number">0647</span>             return 0</span>
+<span id="L648" class="line"><span class="line-number">0648</span>         if args.name and args.name[0].casefold() == &quot;term&quot;:</span>
+<span id="L649" class="line"><span class="line-number">0649</span>             if len(args.name) &lt; 2:</span>
+<span id="L650" class="line"><span class="line-number">0650</span>                 raise ValueError(&quot;usage: add term NAME&quot;)</span>
+<span id="L651" class="line"><span class="line-number">0651</span>             name = &quot; &quot;.join(args.name[1:])</span>
+<span id="L652" class="line"><span class="line-number">0652</span>         else:</span>
+<span id="L653" class="line"><span class="line-number">0653</span>             name = &quot; &quot;.join(args.name)</span>
+<span id="L654" class="line"><span class="line-number">0654</span>         add_term(name, args.definition, args.layer, args.scope)</span>
+<span id="L655" class="line"><span class="line-number">0655</span>         return 0</span>
+<span id="L656" class="line"><span class="line-number">0656</span>     if args.command == &quot;del&quot;:</span>
+<span id="L657" class="line"><span class="line-number">0657</span>         delete_term(&quot; &quot;.join(args.name))</span>
+<span id="L658" class="line"><span class="line-number">0658</span>         return 0</span>
+<span id="L659" class="line"><span class="line-number">0659</span>     if args.command == &quot;upd&quot;:</span>
+<span id="L660" class="line"><span class="line-number">0660</span>         update_term(args.name, args.definition, args.layer, args.scope)</span>
+<span id="L661" class="line"><span class="line-number">0661</span>         return 0</span>
+<span id="L662" class="line"><span class="line-number">0662</span>     if args.command == &quot;create&quot;:</span>
+<span id="L663" class="line"><span class="line-number">0663</span>         if args.entity == &quot;term&quot;:</span>
+<span id="L664" class="line"><span class="line-number">0664</span>             add_term(args.name, args.definition or &quot;&quot;, args.layer, args.scope)</span>
+<span id="L665" class="line"><span class="line-number">0665</span>         elif args.entity == &quot;layer&quot;:</span>
+<span id="L666" class="line"><span class="line-number">0666</span>             create_layer(args.name, args.description or &quot;&quot;)</span>
+<span id="L667" class="line"><span class="line-number">0667</span>         else:</span>
+<span id="L668" class="line"><span class="line-number">0668</span>             add_scope(args.name, args.description or &quot;&quot;)</span>
+<span id="L669" class="line"><span class="line-number">0669</span>         return 0</span>
+<span id="L670" class="line"><span class="line-number">0670</span>     if args.command == &quot;read&quot;:</span>
+<span id="L671" class="line"><span class="line-number">0671</span>         if args.entity == &quot;term&quot;:</span>
+<span id="L672" class="line"><span class="line-number">0672</span>             show_term(args.name)</span>
+<span id="L673" class="line"><span class="line-number">0673</span>         elif args.entity == &quot;layer&quot;:</span>
+<span id="L674" class="line"><span class="line-number">0674</span>             read_layer(args.name)</span>
+<span id="L675" class="line"><span class="line-number">0675</span>         elif args.entity == &quot;scope&quot;:</span>
+<span id="L676" class="line"><span class="line-number">0676</span>             show_scope(args.name)</span>
+<span id="L677" class="line"><span class="line-number">0677</span>         else:</span>
+<span id="L678" class="line"><span class="line-number">0678</span>             list_db_views()</span>
+<span id="L679" class="line"><span class="line-number">0679</span>         return 0</span>
+<span id="L680" class="line"><span class="line-number">0680</span>     if args.command == &quot;update&quot;:</span>
+<span id="L681" class="line"><span class="line-number">0681</span>         if args.entity == &quot;term&quot;:</span>
+<span id="L682" class="line"><span class="line-number">0682</span>             update_term(args.name, args.definition, args.layer, args.scope)</span>
+<span id="L683" class="line"><span class="line-number">0683</span>         elif args.entity == &quot;layer&quot;:</span>
+<span id="L684" class="line"><span class="line-number">0684</span>             update_layer(args.name, args.description)</span>
+<span id="L685" class="line"><span class="line-number">0685</span>         else:</span>
+<span id="L686" class="line"><span class="line-number">0686</span>             update_scope(args.name, args.description)</span>
+<span id="L687" class="line"><span class="line-number">0687</span>         return 0</span>
+<span id="L688" class="line"><span class="line-number">0688</span>     if args.command == &quot;delete&quot;:</span>
+<span id="L689" class="line"><span class="line-number">0689</span>         if args.entity == &quot;term&quot;:</span>
+<span id="L690" class="line"><span class="line-number">0690</span>             delete_term(args.name)</span>
+<span id="L691" class="line"><span class="line-number">0691</span>         elif args.entity == &quot;layer&quot;:</span>
+<span id="L692" class="line"><span class="line-number">0692</span>             delete_layer(args.name)</span>
+<span id="L693" class="line"><span class="line-number">0693</span>         else:</span>
+<span id="L694" class="line"><span class="line-number">0694</span>             delete_scope(args.name)</span>
+<span id="L695" class="line"><span class="line-number">0695</span>         return 0</span>
+<span id="L696" class="line"><span class="line-number">0696</span>     if args.command == &quot;list&quot;:</span>
+<span id="L697" class="line"><span class="line-number">0697</span>         {</span>
+<span id="L698" class="line"><span class="line-number">0698</span>             &quot;term&quot;: list_terms,</span>
+<span id="L699" class="line"><span class="line-number">0699</span>             &quot;scope&quot;: list_scopes,</span>
+<span id="L700" class="line"><span class="line-number">0700</span>             &quot;layer&quot;: list_layers,</span>
+<span id="L701" class="line"><span class="line-number">0701</span>             &quot;lexeme&quot;: list_lexemes,</span>
+<span id="L702" class="line"><span class="line-number">0702</span>             &quot;view&quot;: list_db_views,</span>
+<span id="L703" class="line"><span class="line-number">0703</span>         }[args.entity]()</span>
+<span id="L704" class="line"><span class="line-number">0704</span>         return 0</span>
+<span id="L705" class="line"><span class="line-number">0705</span>     if args.command == &quot;build&quot;:</span>
+<span id="L706" class="line"><span class="line-number">0706</span>         build()</span>
+<span id="L707" class="line"><span class="line-number">0707</span>     elif args.command == &quot;render&quot;:</span>
+<span id="L708" class="line"><span class="line-number">0708</span>         render()</span>
+<span id="L709" class="line"><span class="line-number">0709</span>     elif args.command == &quot;check&quot;:</span>
+<span id="L710" class="line"><span class="line-number">0710</span>         return check()</span>
+<span id="L711" class="line"><span class="line-number">0711</span>     elif args.command == &quot;status&quot;:</span>
+<span id="L712" class="line"><span class="line-number">0712</span>         return site_status()</span>
+<span id="L713" class="line"><span class="line-number">0713</span>     elif args.command == &quot;q&quot;:</span>
+<span id="L714" class="line"><span class="line-number">0714</span>         db = sqlite3.connect(ROOT / &quot;requi.db&quot;)</span>
+<span id="L715" class="line"><span class="line-number">0715</span>         for row in db.execute(args.sql):</span>
+<span id="L716" class="line"><span class="line-number">0716</span>             print(&quot;\t&quot;.join(&quot;&quot; if value is None else str(value) for value in row))</span>
+<span id="L717" class="line"><span class="line-number">0717</span>         db.close()</span>
+<span id="L718" class="line"><span class="line-number">0718</span>     elif args.command == &quot;add-term&quot;:</span>
+<span id="L719" class="line"><span class="line-number">0719</span>         add_term(args.name, args.definition, args.layer, args.scope)</span>
+<span id="L720" class="line"><span class="line-number">0720</span>     elif args.command == &quot;list-terms&quot;:</span>
+<span id="L721" class="line"><span class="line-number">0721</span>         list_terms()</span>
+<span id="L722" class="line"><span class="line-number">0722</span>     elif args.command == &quot;show-term&quot;:</span>
+<span id="L723" class="line"><span class="line-number">0723</span>         show_term(args.name)</span>
+<span id="L724" class="line"><span class="line-number">0724</span>     elif args.command == &quot;update-term&quot;:</span>
+<span id="L725" class="line"><span class="line-number">0725</span>         update_term(args.name, args.definition, args.layer, args.scope)</span>
+<span id="L726" class="line"><span class="line-number">0726</span>     elif args.command == &quot;delete-term&quot;:</span>
+<span id="L727" class="line"><span class="line-number">0727</span>         delete_term(args.name)</span>
+<span id="L728" class="line"><span class="line-number">0728</span>     elif args.command == &quot;add-scope&quot;:</span>
+<span id="L729" class="line"><span class="line-number">0729</span>         add_scope(args.name, args.description)</span>
+<span id="L730" class="line"><span class="line-number">0730</span>     elif args.command == &quot;list-scopes&quot;:</span>
+<span id="L731" class="line"><span class="line-number">0731</span>         list_scopes()</span>
+<span id="L732" class="line"><span class="line-number">0732</span>     elif args.command == &quot;show-scope&quot;:</span>
+<span id="L733" class="line"><span class="line-number">0733</span>         show_scope(args.name)</span>
+<span id="L734" class="line"><span class="line-number">0734</span>     elif args.command == &quot;update-scope&quot;:</span>
+<span id="L735" class="line"><span class="line-number">0735</span>         update_scope(args.name, args.description)</span>
+<span id="L736" class="line"><span class="line-number">0736</span>     elif args.command == &quot;delete-scope&quot;:</span>
+<span id="L737" class="line"><span class="line-number">0737</span>         delete_scope(args.name)</span>
+<span id="L738" class="line"><span class="line-number">0738</span>     return 0</span>
+<span id="L739" class="line"><span class="line-number">0739</span> </span>
+<span id="L740" class="line"><span class="line-number">0740</span> </span>
+<span id="L741" class="line"><span class="line-number">0741</span> if __name__ == &quot;__main__&quot;:</span>
+<span id="L742" class="line"><span class="line-number">0742</span>     raise SystemExit(main())</span></code></pre>

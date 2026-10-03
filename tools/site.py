@@ -131,7 +131,7 @@ def page(title: str, body: str, source: Path) -> str:
 <meta charset="utf-8">
 <title>{html.escape(title)} — Requi</title>
 <style>:root{{color-scheme:light dark}}body{{font:16px/1.6 system-ui,sans-serif;max-width:72rem;margin:0 auto;padding:2rem 1.25rem;background:#10141c;color:#e8edf5}}main{{background:#171d28;border:1px solid #2c3748;border-radius:14px;padding:2rem}}nav{{margin-bottom:1rem}}a{{color:#72b7ff}}h1,h2,h3{{line-height:1.2;color:#fff}}pre{{background:#0b0e13;border:1px solid #2c3748;border-radius:8px;padding:1rem;overflow:auto}}code{{background:#0b0e13;padding:.15rem .35rem;border-radius:4px}}table{{width:100%;border-collapse:collapse;margin:1rem 0}}td,th{{border:1px solid #3a4658;padding:.6rem;text-align:left}}th{{background:#222c3b}}blockquote{{border-left:4px solid #72b7ff;margin:1rem 0;padding:.25rem 1rem;color:#b8c4d6}}</style>
-<nav><a href="{home}">Requi home</a></nav>
+<nav><a href="{home}">Project Requi home</a></nav>
 <main>{body}</main>
 '''
 
@@ -158,6 +158,7 @@ def markdown_sources(db: sqlite3.Connection) -> dict[str, str]:
     return dict(sorted(sources.items()))
 
 
+# REQUI: DB-004
 def status() -> int:
     db = sqlite3.connect(ROOT / "requi.db")
     try:
@@ -185,6 +186,98 @@ def status() -> int:
     print("HTML CURRENT")
     return 0
 
+
+
+def render_python_sources(db: sqlite3.Connection) -> None:
+    rows = db.execute(
+        "SELECT DISTINCT path FROM code_python_requirements ORDER BY path"
+    ).fetchall()
+    for (relative,) in rows:
+        source = ROOT / relative
+        destination = OUT / f"{relative}.html"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        annotations: dict[int, list[tuple[str, str]]] = {}
+        requirement_lines: dict[str, tuple[int, str]] = {}
+        for line, requirement_id, requirement_source, requirement_title in db.execute(
+            "SELECT c.line, c.requirement_id, r.source, r.title "
+            "FROM code_python_requirements AS c "
+            "JOIN requirements AS r ON r.id = c.requirement_id "
+            "WHERE c.path = ? ORDER BY c.line, c.requirement_id",
+            (relative,),
+        ):
+            target = OUT / Path(requirement_source).with_suffix(".html")
+            requirement_href = Path(
+                __import__("os").path.relpath(target, destination.parent)
+            ).as_posix() + f"#{requirement_id.lower()}"
+            annotations.setdefault(line, []).append((requirement_id, requirement_href))
+            requirement_lines.setdefault(requirement_id, (line, requirement_title))
+        rendered_lines = []
+        for line_number, text in enumerate(source.read_text(encoding="utf-8").splitlines(), 1):
+            links = " ".join(
+                f'<a href="{html.escape(target, quote=True)}">{html.escape(requirement_id)}</a>'
+                for requirement_id, target in annotations.get(line_number, ())
+            )
+            marker = f'<span class="requirements"> ← {links}</span>' if links else ""
+            rendered_lines.append(
+                f'<span id="L{line_number}" class="line"><span class="line-number">{line_number:04d}</span> '
+                f'{html.escape(text)}{marker}</span>'
+            )
+        description = db.execute(
+            "SELECT description FROM code_python_files WHERE path = ?",
+            (relative,),
+        ).fetchone()
+        title = html.escape(relative)
+        source_body = "\n".join(rendered_lines)
+        requirement_items = "".join(
+            f'<li><a href="#L{line}">{html.escape(requirement_id)}</a> — {html.escape(requirement_title)}</li>'
+            for requirement_id, (line, requirement_title) in sorted(
+                requirement_lines.items(), key=lambda item: (item[1][0], item[0])
+            )
+        )
+        requirement_summary = (
+            f'<h2>Requirements in this file</h2><ul class="requirement-list">{requirement_items}</ul>'
+            if requirement_items
+            else ""
+        )
+        body = (
+            f"<h1>{title}</h1><p>{html.escape(description[0]) if description else ''}</p>"
+            f"{requirement_summary}"
+            "<p>Requirement comments link to the corresponding acceptance criterion.</p>"
+            f"<pre><code>{source_body}</code></pre>"
+        )
+        destination.write_text(
+            '<!doctype html><meta charset="utf-8">'
+            f"<title>{title} — Requi</title>"
+            '<style>body{font:16px/1.6 system-ui,sans-serif;max-width:100rem;margin:0 auto;padding:2rem 1.25rem;background:#10141c;color:#e8edf5}'
+            'a{color:#72b7ff}.requirement-list{margin-top:0}.requirement-list li{margin:.15rem 0}'
+            'pre{font-size:8px;line-height:1.5;overflow:auto;background:#171d28;padding:1rem;border-radius:8px}.line{display:block}'
+            '.line-number{display:inline-block;width:4rem;color:#8492a6;user-select:none}.requirements{margin-left:1rem}</style>'
+            f"{body}",
+            encoding="utf-8",
+        )
+
+
+def render_python_index(db: sqlite3.Connection) -> None:
+    category = OUT / "code.python"
+    category.mkdir(parents=True, exist_ok=True)
+    entries = []
+    for path, description in db.execute(
+        "SELECT path, description FROM code_python_files ORDER BY path"
+    ):
+        target = OUT / f"{path}.html"
+        href = Path(__import__("os").path.relpath(target, category)).as_posix()
+        entries.append(
+            f'<li><h2><a href="{html.escape(href, quote=True)}">{html.escape(path)}</a></h2>'
+            f'<p>{html.escape(description)}</p></li>'
+        )
+    body = "\n".join(entries) or "<li>No Python files catalogued.</li>"
+    (category / "index.html").write_text(
+        '<!doctype html><meta charset="utf-8"><title>code.python — Requi</title>'
+        '<style>body{font:16px/1.6 system-ui,sans-serif;max-width:72rem;margin:0 auto;padding:2rem 1.25rem}'
+        'a{color:#06c}li{margin:1.5rem 0}h2{margin-bottom:.25rem}p{margin-top:0}</style>'
+        f'<h1>code.python</h1><p>Python source catalogued in <code>requi.db</code>.</p><ul>{body}</ul>',
+        encoding="utf-8",
+    )
 
 
 def main() -> None:
@@ -225,6 +318,8 @@ def main() -> None:
                 if not relative.startswith("requirements/"):
                     continue
                 for match in re.finditer(r"^## ((?:REQ|DB)-\d+) — (.+)$", markdown, re.M):
+                    if match.group(1) in {"DB-001", "DB-002", "DB-003", "DB-004", "DB-005", "DB-006"}:
+                        continue
                     requirement_entries.append(
                         f'<li><a href="{Path(relative).stem}.html#{match.group(1).lower()}">{match.group(1)} — {html.escape(match.group(2))}</a></li>'
                     )
@@ -235,6 +330,9 @@ def main() -> None:
             f'<h1>{directory.name}</h1><ul>{entries}</ul>',
             encoding="utf-8",
         )
+
+    render_python_sources(db)
+    render_python_index(db)
 
     (OUT / "index.html").write_text(
         '<!doctype html><meta charset="utf-8">'

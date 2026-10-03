@@ -1,0 +1,147 @@
+<!doctype html><meta charset="utf-8"><title>tools/wikidata.py — Requi</title><style>body{font:16px/1.6 system-ui,sans-serif;max-width:100rem;margin:0 auto;padding:2rem 1.25rem;background:#10141c;color:#e8edf5}a{color:#72b7ff}.requirement-list{margin-top:0}.requirement-list li{margin:.15rem 0}pre{font-size:8px;line-height:1.5;overflow:auto;background:#171d28;padding:1rem;border-radius:8px}.line{display:block}.line-number{display:inline-block;width:4rem;color:#8492a6;user-select:none}.requirements{margin-left:1rem}</style><h1>tools/wikidata.py</h1><p></p><h2>Requirements in this file</h2><ul class="requirement-list"><li><a href="#L79">DB-003</a> — Track Wikidata Lexemes in the database</li></ul><p>Requirement comments link to the corresponding acceptance criterion.</p><pre><code><span id="L1" class="line"><span class="line-number">0001</span> #!/usr/bin/env python3</span>
+<span id="L2" class="line"><span class="line-number">0002</span> &quot;&quot;&quot;Resolve Wikidata items and Lexemes with batched, rate-limited SPARQL queries.&quot;&quot;&quot;</span>
+<span id="L3" class="line"><span class="line-number">0003</span> from __future__ import annotations</span>
+<span id="L4" class="line"><span class="line-number">0004</span> </span>
+<span id="L5" class="line"><span class="line-number">0005</span> import argparse</span>
+<span id="L6" class="line"><span class="line-number">0006</span> import json</span>
+<span id="L7" class="line"><span class="line-number">0007</span> import os</span>
+<span id="L8" class="line"><span class="line-number">0008</span> import time</span>
+<span id="L9" class="line"><span class="line-number">0009</span> import sqlite3</span>
+<span id="L10" class="line"><span class="line-number">0010</span> from pathlib import Path</span>
+<span id="L11" class="line"><span class="line-number">0011</span> from db_source import ensure_schema, render_database</span>
+<span id="L12" class="line"><span class="line-number">0012</span> from urllib.error import HTTPError</span>
+<span id="L13" class="line"><span class="line-number">0013</span> from urllib.parse import urlencode</span>
+<span id="L14" class="line"><span class="line-number">0014</span> from urllib.request import Request, urlopen</span>
+<span id="L15" class="line"><span class="line-number">0015</span> </span>
+<span id="L16" class="line"><span class="line-number">0016</span> ROOT = Path(__file__).resolve().parents[1]</span>
+<span id="L17" class="line"><span class="line-number">0017</span> SPARQL_ENDPOINT = &quot;https://query.wikidata.org/sparql&quot;</span>
+<span id="L18" class="line"><span class="line-number">0018</span> LANGUAGES = {&quot;en&quot;: &quot;Q1860&quot;}</span>
+<span id="L19" class="line"><span class="line-number">0019</span> LEXICAL_CATEGORIES = {&quot;verb&quot;: &quot;Q24905&quot;, &quot;noun&quot;: &quot;Q1084&quot;, &quot;adjective&quot;: &quot;Q34698&quot;}</span>
+<span id="L20" class="line"><span class="line-number">0020</span> USER_AGENT = os.environ.get(</span>
+<span id="L21" class="line"><span class="line-number">0021</span>     &quot;WIKIDATA_USER_AGENT&quot;,</span>
+<span id="L22" class="line"><span class="line-number">0022</span>     &quot;requi-metadata-helper/1.0 (local requirements graph; set WIKIDATA_USER_AGENT with contact)&quot;,</span>
+<span id="L23" class="line"><span class="line-number">0023</span> )</span>
+<span id="L24" class="line"><span class="line-number">0024</span> RETRYABLE = {429, 500, 502, 503, 504}</span>
+<span id="L25" class="line"><span class="line-number">0025</span> </span>
+<span id="L26" class="line"><span class="line-number">0026</span> </span>
+<span id="L27" class="line"><span class="line-number">0027</span> def sparql(query: str) -&gt; list[dict[str, str]]:</span>
+<span id="L28" class="line"><span class="line-number">0028</span>     request = Request(</span>
+<span id="L29" class="line"><span class="line-number">0029</span>         SPARQL_ENDPOINT,</span>
+<span id="L30" class="line"><span class="line-number">0030</span>         data=urlencode({&quot;query&quot;: query, &quot;format&quot;: &quot;json&quot;}).encode(),</span>
+<span id="L31" class="line"><span class="line-number">0031</span>         headers={</span>
+<span id="L32" class="line"><span class="line-number">0032</span>             &quot;Accept&quot;: &quot;application/sparql-results+json&quot;,</span>
+<span id="L33" class="line"><span class="line-number">0033</span>             &quot;Content-Type&quot;: &quot;application/x-www-form-urlencoded&quot;,</span>
+<span id="L34" class="line"><span class="line-number">0034</span>             &quot;User-Agent&quot;: USER_AGENT,</span>
+<span id="L35" class="line"><span class="line-number">0035</span>         },</span>
+<span id="L36" class="line"><span class="line-number">0036</span>         method=&quot;POST&quot;,</span>
+<span id="L37" class="line"><span class="line-number">0037</span>     )</span>
+<span id="L38" class="line"><span class="line-number">0038</span>     for attempt in range(4):</span>
+<span id="L39" class="line"><span class="line-number">0039</span>         try:</span>
+<span id="L40" class="line"><span class="line-number">0040</span>             with urlopen(request, timeout=60) as response:</span>
+<span id="L41" class="line"><span class="line-number">0041</span>                 bindings = json.load(response)[&quot;results&quot;][&quot;bindings&quot;]</span>
+<span id="L42" class="line"><span class="line-number">0042</span>             return [{key: value[&quot;value&quot;] for key, value in row.items()} for row in bindings]</span>
+<span id="L43" class="line"><span class="line-number">0043</span>         except HTTPError as error:</span>
+<span id="L44" class="line"><span class="line-number">0044</span>             if error.code not in RETRYABLE or attempt == 3:</span>
+<span id="L45" class="line"><span class="line-number">0045</span>                 raise</span>
+<span id="L46" class="line"><span class="line-number">0046</span>             retry_after = error.headers.get(&quot;Retry-After&quot;)</span>
+<span id="L47" class="line"><span class="line-number">0047</span>             time.sleep(float(retry_after) if retry_after else 2**attempt)</span>
+<span id="L48" class="line"><span class="line-number">0048</span>     return []</span>
+<span id="L49" class="line"><span class="line-number">0049</span> </span>
+<span id="L50" class="line"><span class="line-number">0050</span> </span>
+<span id="L51" class="line"><span class="line-number">0051</span> def literal(value: str, language: str = &quot;en&quot;) -&gt; str:</span>
+<span id="L52" class="line"><span class="line-number">0052</span>     return json.dumps(value) + f&quot;@{language}&quot;</span>
+<span id="L53" class="line"><span class="line-number">0053</span> </span>
+<span id="L54" class="line"><span class="line-number">0054</span> </span>
+<span id="L55" class="line"><span class="line-number">0055</span> def find_lexemes(lemmas: list[str], language: str, category: str) -&gt; dict[str, str]:</span>
+<span id="L56" class="line"><span class="line-number">0056</span>     values = &quot; &quot;.join(literal(lemma, language) for lemma in sorted(set(lemmas)))</span>
+<span id="L57" class="line"><span class="line-number">0057</span>     query = f&quot;&quot;&quot;SELECT ?lemma ?lexeme WHERE {{</span>
+<span id="L58" class="line"><span class="line-number">0058</span>       VALUES ?lemma {{ {values} }}</span>
+<span id="L59" class="line"><span class="line-number">0059</span>       ?lexeme a ontolex:LexicalEntry ; wikibase:lemma ?lemma ;</span>
+<span id="L60" class="line"><span class="line-number">0060</span>                dct:language wd:{LANGUAGES[language]} ;</span>
+<span id="L61" class="line"><span class="line-number">0061</span>                wikibase:lexicalCategory wd:{LEXICAL_CATEGORIES[category]} .</span>
+<span id="L62" class="line"><span class="line-number">0062</span>     }}&quot;&quot;&quot;</span>
+<span id="L63" class="line"><span class="line-number">0063</span>     return {row[&quot;lemma&quot;]: row[&quot;lexeme&quot;].rsplit(&quot;/&quot;, 1)[-1] for row in sparql(query)}</span>
+<span id="L64" class="line"><span class="line-number">0064</span> </span>
+<span id="L65" class="line"><span class="line-number">0065</span> </span>
+<span id="L66" class="line"><span class="line-number">0066</span> def find_items(labels: list[str]) -&gt; dict[str, tuple[str, str]]:</span>
+<span id="L67" class="line"><span class="line-number">0067</span>     values = &quot; &quot;.join(literal(label) for label in sorted(set(labels)))</span>
+<span id="L68" class="line"><span class="line-number">0068</span>     query = f&quot;&quot;&quot;SELECT ?label ?item ?description WHERE {{</span>
+<span id="L69" class="line"><span class="line-number">0069</span>       VALUES ?label {{ {values} }}</span>
+<span id="L70" class="line"><span class="line-number">0070</span>       ?item rdfs:label ?label .</span>
+<span id="L71" class="line"><span class="line-number">0071</span>       OPTIONAL {{ ?item schema:description ?description . FILTER(LANG(?description) = &quot;en&quot;) }}</span>
+<span id="L72" class="line"><span class="line-number">0072</span>     }}&quot;&quot;&quot;</span>
+<span id="L73" class="line"><span class="line-number">0073</span>     matches: dict[str, tuple[str, str]] = {}</span>
+<span id="L74" class="line"><span class="line-number">0074</span>     for row in sparql(query):</span>
+<span id="L75" class="line"><span class="line-number">0075</span>         matches.setdefault(row[&quot;label&quot;], (row[&quot;item&quot;].rsplit(&quot;/&quot;, 1)[-1], row.get(&quot;description&quot;, &quot;&quot;)))</span>
+<span id="L76" class="line"><span class="line-number">0076</span>     return matches</span>
+<span id="L77" class="line"><span class="line-number">0077</span> </span>
+<span id="L78" class="line"><span class="line-number">0078</span> </span>
+<span id="L79" class="line"><span class="line-number">0079</span> # REQUI: DB-003<span class="requirements"> ← <a href="../requirements/db.html#db-003">DB-003</a></span></span>
+<span id="L80" class="line"><span class="line-number">0080</span> def write_lexeme(lemma: str, lexeme_id: str, language: str, category: str) -&gt; None:</span>
+<span id="L81" class="line"><span class="line-number">0081</span>     db = sqlite3.connect(ROOT / &quot;requi.db&quot;)</span>
+<span id="L82" class="line"><span class="line-number">0082</span>     ensure_schema(db)</span>
+<span id="L83" class="line"><span class="line-number">0083</span>     term = db.execute(&quot;SELECT path FROM terms WHERE lower(name) = lower(?)&quot;, (lemma,)).fetchone()</span>
+<span id="L84" class="line"><span class="line-number">0084</span>     term_path = term[0] if term else None</span>
+<span id="L85" class="line"><span class="line-number">0085</span>     db.execute(</span>
+<span id="L86" class="line"><span class="line-number">0086</span>         &quot;INSERT OR REPLACE INTO lexemes(id, lemma, language, category, term_path) VALUES (?, ?, ?, ?, ?)&quot;,</span>
+<span id="L87" class="line"><span class="line-number">0087</span>         (lexeme_id, lemma, language, category, term_path),</span>
+<span id="L88" class="line"><span class="line-number">0088</span>     )</span>
+<span id="L89" class="line"><span class="line-number">0089</span>     if term_path:</span>
+<span id="L90" class="line"><span class="line-number">0090</span>         db.execute(&quot;UPDATE terms SET lexeme_id = ?, lexeme_pending = 0 WHERE path = ?&quot;, (lexeme_id, term_path))</span>
+<span id="L91" class="line"><span class="line-number">0091</span>     db.commit()</span>
+<span id="L92" class="line"><span class="line-number">0092</span>     render_database(db)</span>
+<span id="L93" class="line"><span class="line-number">0093</span>     db.commit()</span>
+<span id="L94" class="line"><span class="line-number">0094</span>     db.close()</span>
+<span id="L95" class="line"><span class="line-number">0095</span> </span>
+<span id="L96" class="line"><span class="line-number">0096</span> </span>
+<span id="L97" class="line"><span class="line-number">0097</span> def write_item(term_path: str, qid: str) -&gt; None:</span>
+<span id="L98" class="line"><span class="line-number">0098</span>     db = sqlite3.connect(ROOT / &quot;requi.db&quot;)</span>
+<span id="L99" class="line"><span class="line-number">0099</span>     ensure_schema(db)</span>
+<span id="L100" class="line"><span class="line-number">0100</span>     db.execute(&quot;UPDATE terms SET wikidata_id = ? WHERE path = ?&quot;, (qid, term_path))</span>
+<span id="L101" class="line"><span class="line-number">0101</span>     db.commit()</span>
+<span id="L102" class="line"><span class="line-number">0102</span>     render_database(db)</span>
+<span id="L103" class="line"><span class="line-number">0103</span>     db.commit()</span>
+<span id="L104" class="line"><span class="line-number">0104</span>     db.close()</span>
+<span id="L105" class="line"><span class="line-number">0105</span> </span>
+<span id="L106" class="line"><span class="line-number">0106</span> def main() -&gt; int:</span>
+<span id="L107" class="line"><span class="line-number">0107</span>     parser = argparse.ArgumentParser()</span>
+<span id="L108" class="line"><span class="line-number">0108</span>     parser.add_argument(&quot;--apply&quot;, action=&quot;store_true&quot;, help=&quot;write exact matches&quot;)</span>
+<span id="L109" class="line"><span class="line-number">0109</span>     parser.add_argument(&quot;--lexeme&quot;, help=&quot;find one Lexeme by lemma&quot;)</span>
+<span id="L110" class="line"><span class="line-number">0110</span>     parser.add_argument(&quot;--language&quot;, default=&quot;en&quot;, choices=sorted(LANGUAGES))</span>
+<span id="L111" class="line"><span class="line-number">0111</span>     parser.add_argument(&quot;--category&quot;, default=&quot;verb&quot;, choices=sorted(LEXICAL_CATEGORIES))</span>
+<span id="L112" class="line"><span class="line-number">0112</span>     args = parser.parse_args()</span>
+<span id="L113" class="line"><span class="line-number">0113</span> </span>
+<span id="L114" class="line"><span class="line-number">0114</span>     if args.lexeme:</span>
+<span id="L115" class="line"><span class="line-number">0115</span>         matches = find_lexemes([args.lexeme], args.language, args.category)</span>
+<span id="L116" class="line"><span class="line-number">0116</span>         lexeme_id = matches.get(args.lexeme)</span>
+<span id="L117" class="line"><span class="line-number">0117</span>         if not lexeme_id:</span>
+<span id="L118" class="line"><span class="line-number">0118</span>             print(f&quot;UNRESOLVED lexeme: {args.lexeme} ({args.language}, {args.category})&quot;)</span>
+<span id="L119" class="line"><span class="line-number">0119</span>             return 1</span>
+<span id="L120" class="line"><span class="line-number">0120</span>         print(f&quot;{args.lexeme} ({args.language}, {args.category}) -&gt; {lexeme_id}&quot;)</span>
+<span id="L121" class="line"><span class="line-number">0121</span>         if args.apply:</span>
+<span id="L122" class="line"><span class="line-number">0122</span>             write_lexeme(args.lexeme, lexeme_id, args.language, args.category)</span>
+<span id="L123" class="line"><span class="line-number">0123</span>         return 0</span>
+<span id="L124" class="line"><span class="line-number">0124</span> </span>
+<span id="L125" class="line"><span class="line-number">0125</span>     candidates: list[tuple[Path, str]] = []</span>
+<span id="L126" class="line"><span class="line-number">0126</span>     db = sqlite3.connect(ROOT / &quot;requi.db&quot;)</span>
+<span id="L127" class="line"><span class="line-number">0127</span>     ensure_schema(db)</span>
+<span id="L128" class="line"><span class="line-number">0128</span>     for path, label in db.execute(&quot;SELECT path, name FROM terms WHERE lexeme_pending = 1 ORDER BY path&quot;):</span>
+<span id="L129" class="line"><span class="line-number">0129</span>         candidates.append((ROOT / path, label))</span>
+<span id="L130" class="line"><span class="line-number">0130</span>     db.close()</span>
+<span id="L131" class="line"><span class="line-number">0131</span>     matches = find_items([label for _, label in candidates]) if candidates else {}</span>
+<span id="L132" class="line"><span class="line-number">0132</span>     unresolved = 0</span>
+<span id="L133" class="line"><span class="line-number">0133</span>     for path, label in candidates:</span>
+<span id="L134" class="line"><span class="line-number">0134</span>         result = matches.get(label)</span>
+<span id="L135" class="line"><span class="line-number">0135</span>         if result is None:</span>
+<span id="L136" class="line"><span class="line-number">0136</span>             print(f&quot;UNRESOLVED {path}: {label}&quot;)</span>
+<span id="L137" class="line"><span class="line-number">0137</span>             unresolved += 1</span>
+<span id="L138" class="line"><span class="line-number">0138</span>             continue</span>
+<span id="L139" class="line"><span class="line-number">0139</span>         qid, description = result</span>
+<span id="L140" class="line"><span class="line-number">0140</span>         print(f&quot;{path.relative_to(ROOT)}: {qid} — {description}&quot;)</span>
+<span id="L141" class="line"><span class="line-number">0141</span>         if args.apply:</span>
+<span id="L142" class="line"><span class="line-number">0142</span>             write_item(path.relative_to(ROOT).as_posix(), qid)</span>
+<span id="L143" class="line"><span class="line-number">0143</span>     return 1 if unresolved else 0</span>
+<span id="L144" class="line"><span class="line-number">0144</span> </span>
+<span id="L145" class="line"><span class="line-number">0145</span> </span>
+<span id="L146" class="line"><span class="line-number">0146</span> if __name__ == &quot;__main__&quot;:</span>
+<span id="L147" class="line"><span class="line-number">0147</span>     raise SystemExit(main())</span></code></pre>

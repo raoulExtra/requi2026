@@ -2,6 +2,10 @@
 
 
 
+## Scopes
+
+(no scopes yet)
+
 <!-- requi:begin layer-terms-wikidata -->
 (no terms yet)
 <!-- requi:end -->

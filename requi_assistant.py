@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_URL = os.environ.get("LM_STUDIO_URL", "http://barbara:1234/v1")
 DEFAULT_MODEL = os.environ.get("LM_MODEL", "nvidia/nemotron-3-nano-4b")
 CALL_LOG = ROOT / "last_model_call.md"
+# REQUI: DB-001 DB-002 DB-004
 SYSTEM_PROMPT = """You are a requirements-engineering assistant working on a local Markdown project.
 
 Project rules:

@@ -4,6 +4,10 @@ Files, formats, storage (VRM, audio, config, local database).
 
 **Code:** *(link main source paths here)*
 
+## Scopes
+
+(no scopes yet)
+
 <!-- requi:begin layer-terms-data -->
 - [Column](../terms/column.md)
 - [Cursor](../terms/cursor.md)

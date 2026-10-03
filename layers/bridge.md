@@ -4,6 +4,10 @@ Interfaces between components: Unix socket, message protocol, event bus, APIs.
 
 **Code:** *(link main source paths here)*
 
+## Scopes
+
+(no scopes yet)
+
 <!-- requi:begin layer-terms-bridge -->
 (no terms yet)
 <!-- requi:end -->

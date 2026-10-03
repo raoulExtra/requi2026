@@ -59,6 +59,7 @@ def _usage_arguments(command: str, usage: str) -> list[dict[str, object]]:
     return result
 
 
+# REQUI: DB-002 DB-005
 def load_commands(db: sqlite3.Connection) -> tuple[CommandNode, ...]:
     commands = db.execute("SELECT name, purpose, usage FROM commands ORDER BY name").fetchall()
     argument_rows = db.execute(

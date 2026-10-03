@@ -26,29 +26,49 @@ ROOT = Path(__file__).resolve().parents[1]
 def render() -> None:
     db = sqlite3.connect(ROOT / "requi.db")
     try:
+        ensure_schema(db)
+        db.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS commands(name TEXT PRIMARY KEY, purpose TEXT, usage TEXT);
+            CREATE TABLE IF NOT EXISTS command_arguments(
+                command_name TEXT, name TEXT, flag TEXT, required INTEGER, value_type TEXT, description TEXT,
+                PRIMARY KEY(command_name, name)
+            );
+            CREATE TABLE IF NOT EXISTS command_aliases(command_name TEXT, alias TEXT PRIMARY KEY);
+            """
+        )
+        command_data(db)
         render_database(db)
         db.commit()
     finally:
         db.close()
     subprocess.run([sys.executable, str(ROOT / "tools" / "site.py")], check=True)
-
 COMMANDS = (
-    ("add-term", "Create a term in SQLite and render its HTML page", "python3 tools/requi.py add-term NAME --definition TEXT [--layer ID] [--scope ID]"),
-    ("list-terms", "List all database terms and HTML routes", "python3 tools/requi.py list-terms"),
-    ("show-term", "Display one database term as Markdown", "python3 tools/requi.py show-term NAME"),
-    ("update-term", "Update a term in SQLite and render its HTML page", "python3 tools/requi.py update-term NAME [--definition TEXT] [--layer ID] [--scope ID]"),
-    ("delete-term", "Delete a term from SQLite and rebuild HTML", "python3 tools/requi.py delete-term NAME"),
-    ("add-scope", "Create a scope in SQLite and render its HTML page", "python3 tools/requi.py add-scope NAME [--description TEXT]"),
-    ("list-scopes", "List all database scopes and HTML routes", "python3 tools/requi.py list-scopes"),
-    ("show-scope", "Display one database scope as Markdown", "python3 tools/requi.py show-scope NAME"),
-    ("update-scope", "Update a scope in SQLite and render its HTML page", "python3 tools/requi.py update-scope NAME [--description TEXT]"),
-    ("delete-scope", "Delete an unused scope from SQLite and rebuild HTML", "python3 tools/requi.py delete-scope NAME"),
-    ("create", "Create a supported entity", "python3 tools/requi.py create ENTITY NAME"),
-    ("read", "Read a supported entity or database view", "python3 tools/requi.py read ENTITY [NAME]"),
-    ("update", "Update a supported entity", "python3 tools/requi.py update ENTITY NAME"),
-    ("delete", "Delete a supported entity", "python3 tools/requi.py delete ENTITY NAME"),
-    ("list", "List a supported entity or database view", "python3 tools/requi.py list ENTITY"),
-    ("ast", "Inspect command structure or emit parser-construction code", "python3 tools/requi.py ast [COMMAND] [--format FORMAT]"),
+    ("build", "Import Markdown once, synchronize SQLite, and render the site", "./requi.sh build"),
+    ("render", "Render the SQLite source of truth into Markdown projections and HTML", "./requi.sh render"),
+    ("check", "Check Markdown, SQLite, and generated references for consistency", "./requi.sh check"),
+    ("status", "Report generated HTML freshness", "./requi.sh status"),
+    ("q", "Run a read-only SQL query against requi.db", "./requi.sh q SQL"),
+    ("db", "Inspect database-backed entities or source state", "./requi.sh db ACTION [ENTITY]"),
+    ("add-term", "Create a term in SQLite and render its HTML page", "./requi.sh add-term NAME --definition TEXT [--layer ID] [--scope ID]"),
+    ("list-terms", "List all database terms and HTML routes", "./requi.sh list-terms"),
+    ("show-term", "Display one database term as Markdown", "./requi.sh show-term NAME"),
+    ("update-term", "Update a term in SQLite and render its HTML page", "./requi.sh update-term NAME [--definition TEXT] [--layer ID] [--scope ID]"),
+    ("delete-term", "Delete a term from SQLite and rebuild HTML", "./requi.sh delete-term NAME"),
+    ("add-scope", "Create a scope in SQLite and render its HTML page", "./requi.sh add-scope NAME [--description TEXT]"),
+    ("list-scopes", "List all database scopes and HTML routes", "./requi.sh list-scopes"),
+    ("show-scope", "Display one database scope as Markdown", "./requi.sh show-scope NAME"),
+    ("update-scope", "Update a scope in SQLite and render its HTML page", "./requi.sh update-scope NAME [--description TEXT]"),
+    ("delete-scope", "Delete an unused scope from SQLite and rebuild HTML", "./requi.sh delete-scope NAME"),
+    ("add", "Create a term, layer, or scope using the compact command", "./requi.sh add ENTITY NAME [--definition TEXT] [--layer ID] [--scope ID]"),
+    ("create", "Create a supported entity", "./requi.sh create ENTITY NAME"),
+    ("read", "Read a supported entity or database view", "./requi.sh read ENTITY [NAME]"),
+    ("update", "Update a supported entity", "./requi.sh update ENTITY NAME"),
+    ("delete", "Delete a supported entity", "./requi.sh delete ENTITY NAME"),
+    ("list", "List a supported entity or database view", "./requi.sh list ENTITY"),
+    ("upd", "Short alias for update-term", "./requi.sh upd NAME [--definition TEXT] [--layer ID] [--scope ID]"),
+    ("del", "Short alias for delete-term", "./requi.sh del NAME"),
+    ("ast", "Inspect command structure or emit parser-construction code", "./requi.sh ast [COMMAND] [--format FORMAT]"),
 )
 COMMAND_ALIASES = (("delete", "del"), ("update", "upd"))
 COMMAND_ARGUMENTS = (
@@ -70,6 +90,36 @@ COMMAND_ARGUMENTS = (
     ("delete-scope", "name", "positional", 1, "string", "Scope name"),
     ("ast", "name", "positional", 0, "command", "Command name; omit for all commands"),
     ("ast", "format", "--format", 0, "enum", "tree, json, or python"),
+    ("q", "sql", "positional", 1, "sql", "Read-only SQL query"),
+    ("db", "action", "positional", 1, "enum", "list or status"),
+    ("db", "entity", "positional", 0, "enum", "Currently lexemes for db list"),
+    ("add", "entity", "positional", 1, "enum", "term, layer, or scope"),
+    ("add", "name", "positional", 1, "string", "Entity name; remaining words are accepted for term names"),
+    ("add", "definition", "--definition", 0, "string", "Term definition"),
+    ("add", "layer", "--layer", 0, "layer-id", "Layer ID"),
+    ("add", "scope", "--scope", 0, "scope-id", "Scope ID; repeat for multiple scopes"),
+    ("create", "entity", "positional", 1, "enum", "term, layer, or scope"),
+    ("create", "name", "positional", 1, "string", "Entity name"),
+    ("create", "definition", "--definition", 0, "string", "Term definition"),
+    ("create", "description", "--description", 0, "string", "Layer or scope description"),
+    ("create", "layer", "--layer", 0, "layer-id", "Layer ID"),
+    ("create", "scope", "--scope", 0, "scope-id", "Scope ID; repeat for multiple scopes"),
+    ("read", "entity", "positional", 1, "enum", "term, layer, scope, or view"),
+    ("read", "name", "positional", 0, "string", "Entity name, when required"),
+    ("update", "entity", "positional", 1, "enum", "term, layer, or scope"),
+    ("update", "name", "positional", 1, "string", "Entity name"),
+    ("update", "definition", "--definition", 0, "string", "Replacement term definition"),
+    ("update", "description", "--description", 0, "string", "Replacement layer or scope description"),
+    ("update", "layer", "--layer", 0, "layer-id", "Replacement layer"),
+    ("update", "scope", "--scope", 0, "scope-id", "Replacement scopes; repeat for multiple scopes"),
+    ("delete", "entity", "positional", 1, "enum", "term, layer, or scope"),
+    ("delete", "name", "positional", 1, "string", "Entity name"),
+    ("list", "entity", "positional", 1, "enum", "term, scope, layer, lexeme, or view"),
+    ("upd", "name", "positional", 1, "string", "Term name"),
+    ("upd", "definition", "--definition", 0, "string", "Replacement definition"),
+    ("upd", "layer", "--layer", 0, "layer-id", "Replacement layer"),
+    ("upd", "scope", "--scope", 0, "scope-id", "Replacement scopes; repeat for multiple scopes"),
+    ("del", "name", "positional", 1, "string", "Term name"),
 )
 
 
@@ -84,6 +134,7 @@ def command_data(db: sqlite3.Connection) -> None:
     for command, alias in COMMAND_ALIASES:
         db.execute("INSERT OR REPLACE INTO command_aliases VALUES (?, ?)", (command, alias))
 
+# REQUI: DB-001 DB-002 DB-004 DB-005 DB-006
 def build() -> None:
     db = sqlite3.connect(ROOT / "requi.db")
     ensure_schema(db)

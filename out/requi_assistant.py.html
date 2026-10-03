@@ -1,0 +1,107 @@
+<!doctype html><meta charset="utf-8"><title>requi_assistant.py — Requi</title><style>body{font:16px/1.6 system-ui,sans-serif;max-width:100rem;margin:0 auto;padding:2rem 1.25rem;background:#10141c;color:#e8edf5}a{color:#72b7ff}.requirement-list{margin-top:0}.requirement-list li{margin:.15rem 0}pre{font-size:8px;line-height:1.5;overflow:auto;background:#171d28;padding:1rem;border-radius:8px}.line{display:block}.line-number{display:inline-block;width:4rem;color:#8492a6;user-select:none}.requirements{margin-left:1rem}</style><h1>requi_assistant.py</h1><p>Local OpenAI-compatible assistant CLI: gathers project context, submits a request, and records the model response.</p><h2>Requirements in this file</h2><ul class="requirement-list"><li><a href="#L17">DB-001</a> — Preserve the live database</li><li><a href="#L17">DB-002</a> — Synchronize Markdown metadata safely</li><li><a href="#L17">DB-004</a> — Track generated HTML freshness</li></ul><p>Requirement comments link to the corresponding acceptance criterion.</p><pre><code><span id="L1" class="line"><span class="line-number">0001</span> #!/usr/bin/env python3</span>
+<span id="L2" class="line"><span class="line-number">0002</span> &quot;&quot;&quot;Ask a local OpenAI-compatible model about this requirements project.&quot;&quot;&quot;</span>
+<span id="L3" class="line"><span class="line-number">0003</span> </span>
+<span id="L4" class="line"><span class="line-number">0004</span> from __future__ import annotations</span>
+<span id="L5" class="line"><span class="line-number">0005</span> </span>
+<span id="L6" class="line"><span class="line-number">0006</span> import argparse</span>
+<span id="L7" class="line"><span class="line-number">0007</span> import datetime as dt</span>
+<span id="L8" class="line"><span class="line-number">0008</span> import json</span>
+<span id="L9" class="line"><span class="line-number">0009</span> import os</span>
+<span id="L10" class="line"><span class="line-number">0010</span> from pathlib import Path</span>
+<span id="L11" class="line"><span class="line-number">0011</span> from urllib.request import Request, urlopen</span>
+<span id="L12" class="line"><span class="line-number">0012</span> </span>
+<span id="L13" class="line"><span class="line-number">0013</span> ROOT = Path(__file__).resolve().parent</span>
+<span id="L14" class="line"><span class="line-number">0014</span> DEFAULT_URL = os.environ.get(&quot;LM_STUDIO_URL&quot;, &quot;http://barbara:1234/v1&quot;)</span>
+<span id="L15" class="line"><span class="line-number">0015</span> DEFAULT_MODEL = os.environ.get(&quot;LM_MODEL&quot;, &quot;nvidia/nemotron-3-nano-4b&quot;)</span>
+<span id="L16" class="line"><span class="line-number">0016</span> CALL_LOG = ROOT / &quot;last_model_call.md&quot;</span>
+<span id="L17" class="line"><span class="line-number">0017</span> # REQUI: DB-001 DB-002 DB-004<span class="requirements"> ← <a href="requirements/db.html#db-001">DB-001</a> <a href="requirements/db.html#db-002">DB-002</a> <a href="requirements/db.html#db-004">DB-004</a></span></span>
+<span id="L18" class="line"><span class="line-number">0018</span> SYSTEM_PROMPT = &quot;&quot;&quot;You are a requirements-engineering assistant working on a local Markdown project.</span>
+<span id="L19" class="line"><span class="line-number">0019</span> </span>
+<span id="L20" class="line"><span class="line-number">0020</span> Project rules:</span>
+<span id="L21" class="line"><span class="line-number">0021</span> - Requirements use IDs REQ-### and are never reused or renumbered.</span>
+<span id="L22" class="line"><span class="line-number">0022</span> - Each requirement has Status (PROPOSED, ACTIVE, or RETIRED) and Source.</span>
+<span id="L23" class="line"><span class="line-number">0023</span> - Terms and scopes are stored in `requi.db`; terms render to `out/terms/&lt;kebab-case-name&gt;.html` and scopes render to `out/scopes/&lt;scope-id&gt;.html`.</span>
+<span id="L24" class="line"><span class="line-number">0024</span> - Terms may belong to multiple scopes; scope pages group terms and requirement categories.</span>
+<span id="L25" class="line"><span class="line-number">0025</span> - Requirement links to terms and terms link back to requirements.</span>
+<span id="L26" class="line"><span class="line-number">0026</span> - Do not invent facts or silently edit files.</span>
+<span id="L27" class="line"><span class="line-number">0027</span> </span>
+<span id="L28" class="line"><span class="line-number">0028</span> Review the supplied project context. Answer the user&#x27;s request with concrete file paths,</span>
+<span id="L29" class="line"><span class="line-number">0029</span> requirement IDs, and Markdown where useful. If a change is needed, propose it explicitly;</span>
+<span id="L30" class="line"><span class="line-number">0030</span> do not claim that files were changed. The assistant itself is read-only.</span>
+<span id="L31" class="line"><span class="line-number">0031</span> &quot;&quot;&quot;</span>
+<span id="L32" class="line"><span class="line-number">0032</span> </span>
+<span id="L33" class="line"><span class="line-number">0033</span> </span>
+<span id="L34" class="line"><span class="line-number">0034</span> def project_context(max_chars: int) -&gt; str:</span>
+<span id="L35" class="line"><span class="line-number">0035</span>     files = sorted(</span>
+<span id="L36" class="line"><span class="line-number">0036</span>         path for path in ROOT.rglob(&quot;*&quot;)</span>
+<span id="L37" class="line"><span class="line-number">0037</span>         if path.is_file() and path.name != Path(__file__).name</span>
+<span id="L38" class="line"><span class="line-number">0038</span>         and &quot;.git&quot; not in path.parts</span>
+<span id="L39" class="line"><span class="line-number">0039</span>     )</span>
+<span id="L40" class="line"><span class="line-number">0040</span>     chunks: list[str] = []</span>
+<span id="L41" class="line"><span class="line-number">0041</span>     used = 0</span>
+<span id="L42" class="line"><span class="line-number">0042</span>     for path in files:</span>
+<span id="L43" class="line"><span class="line-number">0043</span>         relative = path.relative_to(ROOT)</span>
+<span id="L44" class="line"><span class="line-number">0044</span>         try:</span>
+<span id="L45" class="line"><span class="line-number">0045</span>             text = path.read_text(encoding=&quot;utf-8&quot;)</span>
+<span id="L46" class="line"><span class="line-number">0046</span>         except UnicodeDecodeError:</span>
+<span id="L47" class="line"><span class="line-number">0047</span>             continue</span>
+<span id="L48" class="line"><span class="line-number">0048</span>         chunk = f&quot;\n--- {relative} ---\n{text}\n&quot;</span>
+<span id="L49" class="line"><span class="line-number">0049</span>         if used + len(chunk) &gt; max_chars:</span>
+<span id="L50" class="line"><span class="line-number">0050</span>             chunks.append(f&quot;\n--- {relative} ---\n[omitted: context limit reached]\n&quot;)</span>
+<span id="L51" class="line"><span class="line-number">0051</span>             break</span>
+<span id="L52" class="line"><span class="line-number">0052</span>         chunks.append(chunk)</span>
+<span id="L53" class="line"><span class="line-number">0053</span>         used += len(chunk)</span>
+<span id="L54" class="line"><span class="line-number">0054</span>     return &quot;&quot;.join(chunks) or &quot;[project has no readable files]&quot;</span>
+<span id="L55" class="line"><span class="line-number">0055</span> </span>
+<span id="L56" class="line"><span class="line-number">0056</span> </span>
+<span id="L57" class="line"><span class="line-number">0057</span> def ask_model(base_url: str, model: str, request: str, context: str) -&gt; str:</span>
+<span id="L58" class="line"><span class="line-number">0058</span>     payload = {</span>
+<span id="L59" class="line"><span class="line-number">0059</span>         &quot;model&quot;: model,</span>
+<span id="L60" class="line"><span class="line-number">0060</span>         &quot;temperature&quot;: 0.2,</span>
+<span id="L61" class="line"><span class="line-number">0061</span>         &quot;max_tokens&quot;: 1200,</span>
+<span id="L62" class="line"><span class="line-number">0062</span>         &quot;messages&quot;: [</span>
+<span id="L63" class="line"><span class="line-number">0063</span>             {&quot;role&quot;: &quot;system&quot;, &quot;content&quot;: SYSTEM_PROMPT},</span>
+<span id="L64" class="line"><span class="line-number">0064</span>             {&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: f&quot;Project context:\n{context}\n\nUser request:\n{request}&quot;},</span>
+<span id="L65" class="line"><span class="line-number">0065</span>         ],</span>
+<span id="L66" class="line"><span class="line-number">0066</span>     }</span>
+<span id="L67" class="line"><span class="line-number">0067</span>     endpoint = base_url.rstrip(&quot;/&quot;) + &quot;/chat/completions&quot;</span>
+<span id="L68" class="line"><span class="line-number">0068</span>     http_request = Request(</span>
+<span id="L69" class="line"><span class="line-number">0069</span>         endpoint,</span>
+<span id="L70" class="line"><span class="line-number">0070</span>         data=json.dumps(payload).encode(&quot;utf-8&quot;),</span>
+<span id="L71" class="line"><span class="line-number">0071</span>         headers={&quot;Content-Type&quot;: &quot;application/json&quot;},</span>
+<span id="L72" class="line"><span class="line-number">0072</span>         method=&quot;POST&quot;,</span>
+<span id="L73" class="line"><span class="line-number">0073</span>     )</span>
+<span id="L74" class="line"><span class="line-number">0074</span>     with urlopen(http_request, timeout=120) as response:</span>
+<span id="L75" class="line"><span class="line-number">0075</span>         result = json.load(response)</span>
+<span id="L76" class="line"><span class="line-number">0076</span>     return result[&quot;choices&quot;][0][&quot;message&quot;][&quot;content&quot;]</span>
+<span id="L77" class="line"><span class="line-number">0077</span> </span>
+<span id="L78" class="line"><span class="line-number">0078</span> </span>
+<span id="L79" class="line"><span class="line-number">0079</span> def main() -&gt; int:</span>
+<span id="L80" class="line"><span class="line-number">0080</span>     parser = argparse.ArgumentParser(description=__doc__)</span>
+<span id="L81" class="line"><span class="line-number">0081</span>     parser.add_argument(&quot;request&quot;, nargs=&quot;+&quot;, help=&quot;Question or requirements task&quot;)</span>
+<span id="L82" class="line"><span class="line-number">0082</span>     parser.add_argument(&quot;--url&quot;, default=DEFAULT_URL, help=&quot;LM Studio OpenAI-compatible base URL&quot;)</span>
+<span id="L83" class="line"><span class="line-number">0083</span>     parser.add_argument(&quot;--model&quot;, default=DEFAULT_MODEL, help=&quot;Model ID served by LM Studio&quot;)</span>
+<span id="L84" class="line"><span class="line-number">0084</span>     parser.add_argument(&quot;--max-context&quot;, type=int, default=120_000, help=&quot;Maximum context characters&quot;)</span>
+<span id="L85" class="line"><span class="line-number">0085</span>     args = parser.parse_args()</span>
+<span id="L86" class="line"><span class="line-number">0086</span> </span>
+<span id="L87" class="line"><span class="line-number">0087</span>     request_text = &quot; &quot;.join(args.request)</span>
+<span id="L88" class="line"><span class="line-number">0088</span>     try:</span>
+<span id="L89" class="line"><span class="line-number">0089</span>         answer = ask_model(args.url, args.model, request_text, project_context(args.max_context))</span>
+<span id="L90" class="line"><span class="line-number">0090</span>     except Exception as error:</span>
+<span id="L91" class="line"><span class="line-number">0091</span>         parser.error(f&quot;model request failed: {error}&quot;)</span>
+<span id="L92" class="line"><span class="line-number">0092</span>     timestamp = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()</span>
+<span id="L93" class="line"><span class="line-number">0093</span>     CALL_LOG.write_text(</span>
+<span id="L94" class="line"><span class="line-number">0094</span>         f&quot;# Last local model call\n\n&quot;</span>
+<span id="L95" class="line"><span class="line-number">0095</span>         f&quot;- **UTC time:** `{timestamp}`\n&quot;</span>
+<span id="L96" class="line"><span class="line-number">0096</span>         f&quot;- **Model:** `{args.model}`\n&quot;</span>
+<span id="L97" class="line"><span class="line-number">0097</span>         f&quot;- **Endpoint:** `{args.url.rstrip(&#x27;/&#x27;)}`\n&quot;</span>
+<span id="L98" class="line"><span class="line-number">0098</span>         f&quot;- **Request:** {request_text}\n&quot;,</span>
+<span id="L99" class="line"><span class="line-number">0099</span>         encoding=&quot;utf-8&quot;,</span>
+<span id="L100" class="line"><span class="line-number">0100</span>     )</span>
+<span id="L101" class="line"><span class="line-number">0101</span>     print(f&quot;[local model call: {timestamp} UTC | {args.model}]&quot;)</span>
+<span id="L102" class="line"><span class="line-number">0102</span>     print(answer)</span>
+<span id="L103" class="line"><span class="line-number">0103</span>     return 0</span>
+<span id="L104" class="line"><span class="line-number">0104</span> </span>
+<span id="L105" class="line"><span class="line-number">0105</span> </span>
+<span id="L106" class="line"><span class="line-number">0106</span> if __name__ == &quot;__main__&quot;:</span>
+<span id="L107" class="line"><span class="line-number">0107</span>     raise SystemExit(main())</span></code></pre>

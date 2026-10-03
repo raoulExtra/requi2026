@@ -10,6 +10,26 @@ import sqlite3
 ROOT = Path(__file__).resolve().parents[1]
 LINK = re.compile(r"\[([^]]+)\]\(([^)]+)\)")
 REQ_ID = re.compile(r"\b(?:REQ|DB)-\d{3}\b")
+PYTHON_REQUIREMENT = re.compile(r"^\s*#\s*REQUI:\s*((?:\b(?:REQ|DB)-\d{3}\b[\s,]*)+)\s*$")
+PYTHON_FILE_DESCRIPTIONS = (
+    ("requi_assistant.py", "Local OpenAI-compatible assistant CLI: gathers project context, submits a request, and records the model response."),
+    ("tools/command_ast.py", "Loads the command specification and renders its tree, JSON representation, and argparse construction."),
+    ("tools/db_source.py", "Owns SQLite schema setup, Markdown import/projections, and database-backed consistency helpers."),
+    ("tools/site.py", "Converts Markdown and database projections into HTML pages and records source hashes for freshness checks."),
+)
+DB_TERM_SCOPE_PATHS = (
+    "terms/column.md",
+    "terms/cursor.md",
+    "terms/create.md",
+    "terms/delete.md",
+    "terms/index.md",
+    "terms/read.md",
+    "terms/row.md",
+    "terms/table.md",
+    "terms/update.md",
+)
+
+
 
 
 def _title(text: str) -> str:
@@ -31,12 +51,37 @@ def _add_column(db: sqlite3.Connection, table: str, column: str, definition: str
         db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
+def _sync_python_file_catalog(db: sqlite3.Connection) -> None:
+    for path, description in PYTHON_FILE_DESCRIPTIONS:
+        db.execute(
+            "INSERT OR IGNORE INTO code_python_files(path, description) VALUES (?, ?)",
+            (path, description),
+        )
+def _sync_python_requirements(db: sqlite3.Connection) -> None:
+    db.execute("DELETE FROM code_python_requirements")
+    for path in sorted(ROOT.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        relative = path.relative_to(ROOT).as_posix()
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            match = PYTHON_REQUIREMENT.match(line)
+            if not match:
+                continue
+            for requirement_id in REQ_ID.findall(match.group(1)):
+                db.execute(
+                    "INSERT OR IGNORE INTO code_python_requirements(path, line, requirement_id) VALUES (?, ?, ?)",
+                    (relative, line_number, requirement_id),
+                )
+
+
+# REQUI: DB-001 DB-002 DB-003 DB-006
 def ensure_schema(db: sqlite3.Connection) -> None:
     db.executescript(
         """
         CREATE TABLE IF NOT EXISTS terms(path TEXT PRIMARY KEY, name TEXT, definition TEXT);
         CREATE TABLE IF NOT EXISTS layers(id TEXT PRIMARY KEY, title TEXT);
         CREATE TABLE IF NOT EXISTS scopes(id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT NOT NULL DEFAULT '');
+        CREATE TABLE IF NOT EXISTS scope_layers(scope_id TEXT, layer_id TEXT, PRIMARY KEY(scope_id, layer_id));
         CREATE TABLE IF NOT EXISTS requirements(id TEXT PRIMARY KEY, source TEXT, status TEXT);
         CREATE TABLE IF NOT EXISTS term_layers(term_path TEXT, layer_id TEXT, PRIMARY KEY(term_path, layer_id));
         CREATE TABLE IF NOT EXISTS term_scopes(term_path TEXT, scope_id TEXT, PRIMARY KEY(term_path, scope_id));
@@ -44,6 +89,8 @@ def ensure_schema(db: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS lexemes(id TEXT PRIMARY KEY, lemma TEXT NOT NULL, language TEXT NOT NULL, category TEXT NOT NULL, term_path TEXT);
         CREATE TABLE IF NOT EXISTS term_related(term_path TEXT, related_path TEXT, PRIMARY KEY(term_path, related_path));
         CREATE TABLE IF NOT EXISTS requirement_sources(path TEXT PRIMARY KEY, title TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS code_python_files(path TEXT PRIMARY KEY, description TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS code_python_requirements(path TEXT, line INTEGER NOT NULL, requirement_id TEXT NOT NULL, PRIMARY KEY(path, line, requirement_id));
         CREATE TABLE IF NOT EXISTS requi_state(key TEXT PRIMARY KEY, value TEXT NOT NULL);
         """
     )
@@ -53,8 +100,13 @@ def ensure_schema(db: sqlite3.Connection) -> None:
     _add_column(db, "requirements", "title", "TEXT NOT NULL DEFAULT ''")
     _add_column(db, "requirements", "layer_id", "TEXT")
     _add_column(db, "requirements", "body", "TEXT NOT NULL DEFAULT ''")
+    _add_column(db, "code_python_files", "scope_id", "TEXT")
     _add_column(db, "requirement_sources", "scope_id", "TEXT")
     _sync_requirement_scopes(db)
+    _sync_python_file_catalog(db)
+    _sync_database_term_scopes(db)
+    _sync_code_scopes(db)
+    _sync_python_requirements(db)
 
 
 def _scope_id_for_source(source: str) -> str:
@@ -74,6 +126,31 @@ def _sync_requirement_scopes(db: sqlite3.Connection) -> None:
             (scope_id, _scope_name(scope_id), title),
         )
         db.execute("UPDATE requirement_sources SET scope_id = ? WHERE path = ?", (scope_id, source))
+def _sync_database_term_scopes(db: sqlite3.Connection) -> None:
+    for path in DB_TERM_SCOPE_PATHS:
+        db.execute(
+            "INSERT OR IGNORE INTO term_scopes(term_path, scope_id) VALUES (?, 'db')",
+            (path,),
+        )
+
+def _sync_code_scopes(db: sqlite3.Connection) -> None:
+    db.execute(
+        "INSERT OR IGNORE INTO layers(id, title, description) VALUES (?, ?, ?)",
+        ("code", "code", "Executable project code and command-line entrypoints."),
+    )
+    for scope_id, description in (
+        ("code.python", "Database-backed catalog of Python source files."),
+        ("code.sh", "Database-backed command reference for the ./requi.sh shell entrypoint."),
+    ):
+        db.execute(
+            "INSERT OR IGNORE INTO scopes(id, name, description) VALUES (?, ?, ?)",
+            (scope_id, scope_id, description),
+        )
+        db.execute(
+            "INSERT OR IGNORE INTO scope_layers(scope_id, layer_id) VALUES (?, 'code')",
+            (scope_id,),
+        )
+    db.execute("UPDATE code_python_files SET scope_id = 'code.python'")
 
 
 
@@ -132,7 +209,7 @@ def _term_row(path: Path) -> dict[str, object]:
 
 def _layer_row(path: Path) -> dict[str, str]:
     text = path.read_text(encoding="utf-8")
-    match = re.match(r"^# Layer: (.+?)\n\n(.*?)(?:\n<!-- requi:begin|\Z)", text, re.S)
+    match = re.match(r"^# Layer: (.+?)\n\n(.*?)(?:\n## |\n<!-- requi:begin|\Z)", text, re.S)
     description = match.group(2).strip() if match else ""
     return {"id": path.stem, "title": _title(text), "description": description}
 
@@ -150,6 +227,7 @@ def _requirement_rows(text: str) -> list[tuple[str, str, str, str, str | None]]:
     matches = re.finditer(r"^## ((?:REQ|DB)-\d+) — (.+?)\n(.*?)(?=^## |\Z)", text, re.M | re.S)
     for match in matches:
         requirement_id, title, body = match.groups()
+        body = re.split(r"^### Code references\s*$", body, maxsplit=1, flags=re.M)[0]
         status = re.search(r"^- \*\*Status:\*\* ([^\n]+)$", body, re.M)
         layer = re.search(r"^- \*\*Layer:\*\* ([^\n]+)$", body, re.M)
         rows.append(
@@ -227,6 +305,7 @@ def import_markdown(db: sqlite3.Connection) -> None:
             (path.stem, lemma, language.group(1).strip() if language else "", category.group(1).strip() if category else "", term[0] if term else None),
         )
     _import_requirements(db)
+    _sync_database_term_scopes(db)
     now = datetime.now(timezone.utc).isoformat()
     _set_state(db, "source_mode", "sqlite")
     _set_state(db, "migration_status", "complete")
@@ -287,10 +366,57 @@ def _scope_markdown(db: sqlite3.Connection, scope_id: str) -> str:
             (scope_id,),
         )
     ]
+    python_lines = []
+    if scope_id == "code.python":
+        python_lines = [
+            f"- [{path}](../{path}.html) — {description}"
+            for path, description in db.execute(
+                "SELECT path, description FROM code_python_files "
+                "WHERE scope_id = ? ORDER BY path",
+                (scope_id,),
+            )
+        ]
+    command_sections = []
+    if scope_id == "code.sh":
+        for command_name, purpose, usage in db.execute(
+            "SELECT name, purpose, usage FROM commands ORDER BY name"
+        ):
+            argument_lines = []
+            for argument_name, flag, required, value_type, argument_description in db.execute(
+                "SELECT name, flag, required, value_type, description "
+                "FROM command_arguments WHERE command_name = ? ORDER BY rowid",
+                (command_name,),
+            ):
+                argument = argument_name if flag == "positional" else flag
+                required_label = "required" if required else "optional"
+                argument_lines.append(
+                    f"- `{argument}` ({value_type}, {required_label}) — {argument_description}"
+                )
+            command_sections.extend(
+                [
+                    f"### `./requi.sh {command_name}`",
+                    purpose,
+                    "",
+                    "```bash",
+                    usage,
+                    "```",
+                    "",
+                    "Arguments:",
+                    "\n".join(argument_lines) if argument_lines else "- none",
+                    "",
+                ]
+            )
+    commands_markdown = "\n".join(command_sections)
     return (
         f"# {name}\n\n{description}\n\n"
         f"## Terms\n\n{chr(10).join(term_lines) or '(no terms yet)'}\n\n"
         f"## Requirement categories\n\n{chr(10).join(source_lines) or '(no requirement categories yet)'}\n"
+        + (
+            f"\n## Python files\n\n{chr(10).join(python_lines) or '(no Python files yet)'}\n"
+            if scope_id == "code.python"
+            else ""
+        )
+        + (f"\n## `./requi.sh` command reference\n\n{commands_markdown}" if commands_markdown else "")
     )
 
 
@@ -299,10 +425,20 @@ def _layer_markdown(db: sqlite3.Connection, layer_id: str) -> str:
     if not row:
         raise ValueError(f"layer not found: {layer_id}")
     title, description = row
+    scope_lines = [
+        f"- [{name}](../scopes/{scope_id}.md)"
+        for scope_id, name in db.execute(
+            "SELECT s.id, s.name FROM scopes AS s "
+            "JOIN scope_layers AS sl ON sl.scope_id = s.id "
+            "WHERE sl.layer_id = ? ORDER BY s.id",
+            (layer_id,),
+        )
+    ]
     term_lines = [f"- [{name}](../terms/{Path(path).name})" for path, name in db.execute("SELECT t.path, t.name FROM terms t JOIN term_layers l ON l.term_path = t.path WHERE l.layer_id = ? ORDER BY lower(t.name)", (layer_id,))]
     req_lines = [f"- [{req_id} — {title_text}](../requirements/{Path(source).name}#{req_id.lower()})" for req_id, title_text, source in db.execute("SELECT id, title, source FROM requirements WHERE layer_id = ? ORDER BY id", (layer_id,))]
     return (
         f"# Layer: {layer_id}\n\n{description}\n\n"
+        f"## Scopes\n\n{chr(10).join(scope_lines) or '(no scopes yet)'}\n\n"
         f"<!-- requi:begin layer-terms-{layer_id} -->\n{chr(10).join(term_lines) or '(no terms yet)'}\n<!-- requi:end -->\n\n"
         f"<!-- requi:begin layer-reqs-{layer_id} -->\n{chr(10).join(req_lines) or '(no requirements yet)'}\n<!-- requi:end -->\n"
     )
@@ -313,6 +449,18 @@ def _requirement_markdown(db: sqlite3.Connection, source: str) -> str:
     lines = [f"# {source_title[0] if source_title else Path(source).stem}", ""]
     for requirement_id, title, body in db.execute("SELECT id, title, body FROM requirements WHERE source = ? ORDER BY id", (source,)):
         lines.extend([f"## {requirement_id} — {title}", body, ""])
+        references = db.execute(
+            "SELECT path, line FROM code_python_requirements "
+            "WHERE requirement_id = ? ORDER BY path, line",
+            (requirement_id,),
+        ).fetchall()
+        if references:
+            lines.extend(["### Code references", ""])
+            lines.extend(
+                f"- [{path}:{line}](../{path}.html#L{line})"
+                for path, line in references
+            )
+            lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 

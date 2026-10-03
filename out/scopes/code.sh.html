@@ -1,0 +1,291 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>code.sh — Requi</title>
+<style>:root{color-scheme:light dark}body{font:16px/1.6 system-ui,sans-serif;max-width:72rem;margin:0 auto;padding:2rem 1.25rem;background:#10141c;color:#e8edf5}main{background:#171d28;border:1px solid #2c3748;border-radius:14px;padding:2rem}nav{margin-bottom:1rem}a{color:#72b7ff}h1,h2,h3{line-height:1.2;color:#fff}pre{background:#0b0e13;border:1px solid #2c3748;border-radius:8px;padding:1rem;overflow:auto}code{background:#0b0e13;padding:.15rem .35rem;border-radius:4px}table{width:100%;border-collapse:collapse;margin:1rem 0}td,th{border:1px solid #3a4658;padding:.6rem;text-align:left}th{background:#222c3b}blockquote{border-left:4px solid #72b7ff;margin:1rem 0;padding:.25rem 1rem;color:#b8c4d6}</style>
+<nav><a href="../_HOME.html">Project Requi home</a></nav>
+<main><h1 id="code-sh">code.sh</h1>
+<p>Database-backed command reference for the ./requi.sh shell entrypoint.</p>
+<h2 id="terms">Terms</h2>
+<p>(no terms yet)</p>
+<h2 id="requirement-categories">Requirement categories</h2>
+<p>(no requirement categories yet)</p>
+<h2 id="requi-sh-command-reference"><code>./requi.sh</code> command reference</h2>
+<h3 id="requi-sh-add"><code>./requi.sh add</code></h3>
+<p>Create a term, layer, or scope using the compact command</p>
+<pre><code>
+./requi.sh add ENTITY NAME [--definition TEXT] [--layer ID] [--scope ID]
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>entity</code> (enum, required) — term, layer, or scope</li>
+<li><code>name</code> (string, required) — Entity name; remaining words are accepted for term names</li>
+<li><code>--definition</code> (string, optional) — Term definition</li>
+<li><code>--layer</code> (layer-id, optional) — Layer ID</li>
+<li><code>--scope</code> (scope-id, optional) — Scope ID; repeat for multiple scopes</li>
+</ul>
+<h3 id="requi-sh-add-scope"><code>./requi.sh add-scope</code></h3>
+<p>Create a scope in SQLite and render its HTML page</p>
+<pre><code>
+./requi.sh add-scope NAME [--description TEXT]
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>name</code> (string, required) — Scope name</li>
+<li><code>--description</code> (string, optional) — Scope description</li>
+</ul>
+<h3 id="requi-sh-add-term"><code>./requi.sh add-term</code></h3>
+<p>Create a term in SQLite and render its HTML page</p>
+<pre><code>
+./requi.sh add-term NAME --definition TEXT [--layer ID] [--scope ID]
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>name</code> (string, required) — Display name</li>
+<li><code>--definition</code> (string, required) — One-line definition</li>
+<li><code>--layer</code> (layer-id, optional) — Layer ID, for example data</li>
+<li><code>--scope</code> (scope-id, optional) — Scope ID; repeat for multiple scopes</li>
+</ul>
+<h3 id="requi-sh-ast"><code>./requi.sh ast</code></h3>
+<p>Inspect command structure or emit parser-construction code</p>
+<pre><code>
+./requi.sh ast [COMMAND] [--format FORMAT]
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>name</code> (command, optional) — Command name; omit for all commands</li>
+<li><code>--format</code> (enum, optional) — tree, json, or python</li>
+</ul>
+<h3 id="requi-sh-build"><code>./requi.sh build</code></h3>
+<p>Import Markdown once, synchronize SQLite, and render the site</p>
+<pre><code>
+./requi.sh build
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li>none</li>
+</ul>
+<h3 id="requi-sh-check"><code>./requi.sh check</code></h3>
+<p>Check Markdown, SQLite, and generated references for consistency</p>
+<pre><code>
+./requi.sh check
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li>none</li>
+</ul>
+<h3 id="requi-sh-create"><code>./requi.sh create</code></h3>
+<p>Create a supported entity</p>
+<pre><code>
+./requi.sh create ENTITY NAME
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>entity</code> (enum, required) — term, layer, or scope</li>
+<li><code>name</code> (string, required) — Entity name</li>
+<li><code>--definition</code> (string, optional) — Term definition</li>
+<li><code>--description</code> (string, optional) — Layer or scope description</li>
+<li><code>--layer</code> (layer-id, optional) — Layer ID</li>
+<li><code>--scope</code> (scope-id, optional) — Scope ID; repeat for multiple scopes</li>
+</ul>
+<h3 id="requi-sh-db"><code>./requi.sh db</code></h3>
+<p>Inspect database-backed entities or source state</p>
+<pre><code>
+./requi.sh db ACTION [ENTITY]
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>action</code> (enum, required) — list or status</li>
+<li><code>entity</code> (enum, optional) — Currently lexemes for db list</li>
+</ul>
+<h3 id="requi-sh-del"><code>./requi.sh del</code></h3>
+<p>Short alias for delete-term</p>
+<pre><code>
+./requi.sh del NAME
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>name</code> (string, required) — Term name</li>
+</ul>
+<h3 id="requi-sh-delete"><code>./requi.sh delete</code></h3>
+<p>Delete a supported entity</p>
+<pre><code>
+./requi.sh delete ENTITY NAME
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>entity</code> (enum, required) — term, layer, or scope</li>
+<li><code>name</code> (string, required) — Entity name</li>
+</ul>
+<h3 id="requi-sh-delete-scope"><code>./requi.sh delete-scope</code></h3>
+<p>Delete an unused scope from SQLite and rebuild HTML</p>
+<pre><code>
+./requi.sh delete-scope NAME
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>name</code> (string, required) — Scope name</li>
+</ul>
+<h3 id="requi-sh-delete-term"><code>./requi.sh delete-term</code></h3>
+<p>Delete a term from SQLite and rebuild HTML</p>
+<pre><code>
+./requi.sh delete-term NAME
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>name</code> (string, required) — Term display name</li>
+</ul>
+<h3 id="requi-sh-list"><code>./requi.sh list</code></h3>
+<p>List a supported entity or database view</p>
+<pre><code>
+./requi.sh list ENTITY
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>entity</code> (enum, required) — term, scope, layer, lexeme, or view</li>
+</ul>
+<h3 id="requi-sh-list-scopes"><code>./requi.sh list-scopes</code></h3>
+<p>List all database scopes and HTML routes</p>
+<pre><code>
+./requi.sh list-scopes
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li>none</li>
+</ul>
+<h3 id="requi-sh-list-terms"><code>./requi.sh list-terms</code></h3>
+<p>List all database terms and HTML routes</p>
+<pre><code>
+./requi.sh list-terms
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li>none</li>
+</ul>
+<h3 id="requi-sh-q"><code>./requi.sh q</code></h3>
+<p>Run a read-only SQL query against requi.db</p>
+<pre><code>
+./requi.sh q SQL
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>sql</code> (sql, required) — Read-only SQL query</li>
+</ul>
+<h3 id="requi-sh-read"><code>./requi.sh read</code></h3>
+<p>Read a supported entity or database view</p>
+<pre><code>
+./requi.sh read ENTITY [NAME]
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>entity</code> (enum, required) — term, layer, scope, or view</li>
+<li><code>name</code> (string, optional) — Entity name, when required</li>
+</ul>
+<h3 id="requi-sh-render"><code>./requi.sh render</code></h3>
+<p>Render the SQLite source of truth into Markdown projections and HTML</p>
+<pre><code>
+./requi.sh render
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li>none</li>
+</ul>
+<h3 id="requi-sh-show-scope"><code>./requi.sh show-scope</code></h3>
+<p>Display one database scope as Markdown</p>
+<pre><code>
+./requi.sh show-scope NAME
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>name</code> (string, required) — Scope name</li>
+</ul>
+<h3 id="requi-sh-show-term"><code>./requi.sh show-term</code></h3>
+<p>Display one database term as Markdown</p>
+<pre><code>
+./requi.sh show-term NAME
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>name</code> (string, required) — Term display name</li>
+</ul>
+<h3 id="requi-sh-status"><code>./requi.sh status</code></h3>
+<p>Report generated HTML freshness</p>
+<pre><code>
+./requi.sh status
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li>none</li>
+</ul>
+<h3 id="requi-sh-upd"><code>./requi.sh upd</code></h3>
+<p>Short alias for update-term</p>
+<pre><code>
+./requi.sh upd NAME [--definition TEXT] [--layer ID] [--scope ID]
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>name</code> (string, required) — Term name</li>
+<li><code>--definition</code> (string, optional) — Replacement definition</li>
+<li><code>--layer</code> (layer-id, optional) — Replacement layer</li>
+<li><code>--scope</code> (scope-id, optional) — Replacement scopes; repeat for multiple scopes</li>
+</ul>
+<h3 id="requi-sh-update"><code>./requi.sh update</code></h3>
+<p>Update a supported entity</p>
+<pre><code>
+./requi.sh update ENTITY NAME
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>entity</code> (enum, required) — term, layer, or scope</li>
+<li><code>name</code> (string, required) — Entity name</li>
+<li><code>--definition</code> (string, optional) — Replacement term definition</li>
+<li><code>--description</code> (string, optional) — Replacement layer or scope description</li>
+<li><code>--layer</code> (layer-id, optional) — Replacement layer</li>
+<li><code>--scope</code> (scope-id, optional) — Replacement scopes; repeat for multiple scopes</li>
+</ul>
+<h3 id="requi-sh-update-scope"><code>./requi.sh update-scope</code></h3>
+<p>Update a scope in SQLite and render its HTML page</p>
+<pre><code>
+./requi.sh update-scope NAME [--description TEXT]
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>name</code> (string, required) — Scope name</li>
+<li><code>--description</code> (string, optional) — Replacement description</li>
+</ul>
+<h3 id="requi-sh-update-term"><code>./requi.sh update-term</code></h3>
+<p>Update a term in SQLite and render its HTML page</p>
+<pre><code>
+./requi.sh update-term NAME [--definition TEXT] [--layer ID] [--scope ID]
+
+</code></pre>
+<p>Arguments:</p>
+<ul>
+<li><code>name</code> (string, required) — Term display name</li>
+<li><code>--definition</code> (string, optional) — Replacement definition</li>
+<li><code>--layer</code> (layer-id, optional) — Replacement layer</li>
+<li><code>--scope</code> (scope-id, optional) — Replacement scopes; repeat for multiple scopes</li>
+</ul></main>

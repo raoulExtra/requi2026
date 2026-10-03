@@ -76,6 +76,7 @@ def find_items(labels: list[str]) -> dict[str, tuple[str, str]]:
     return matches
 
 
+# REQUI: DB-003
 def write_lexeme(lemma: str, lexeme_id: str, language: str, category: str) -> None:
     db = sqlite3.connect(ROOT / "requi.db")
     ensure_schema(db)
