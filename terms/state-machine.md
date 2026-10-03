@@ -1,7 +1,7 @@
 # State machine
 > **Wikidata:** [Q139450081](https://www.wikidata.org/wiki/Q139450081)
 
-> **Lexeme:** *(L-id via tools/wikidata.py)*
+> **Lexeme:** *(L-#### via tools/wikidata.py)*
 
 
 ## Definition

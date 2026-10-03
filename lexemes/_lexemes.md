@@ -1,6 +1,6 @@
 # Lexemes (Wikidata)
 
-One file per Wikidata Lexeme: `lexemes/L#####.md`, linked from term files.
+One file per Wikidata Lexeme: `lexemes/L-#####.md`, linked from term files.
 Populated from `requi.db`.
 
 <!-- requi:begin lexemes -->

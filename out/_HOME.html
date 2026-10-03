@@ -11,7 +11,7 @@
 <tr><td><a href="terms/index.html">terms/</a></td><td>One file per term <code>terms/&lt;kebab-name&gt;.md</code></td></tr>
 <tr><td><a href="layers/_layers.html">layers/_layers.md</a></td><td>Architecture overview + generated jump table</td></tr>
 <tr><td><a href="layers/frontend.html">layers/frontend.md</a> …</td><td>One file per layer: terms, requirements, code paths</td></tr>
-<tr><td><a href="lexemes/_lexemes.html">Lexeme index</a></td><td>One file per Wikidata Lexeme <code>L#####</code></td></tr>
+<tr><td><a href="lexemes/_lexemes.html">Lexeme index</a></td><td>One file per Wikidata Lexeme <code>L-#####</code></td></tr>
 <tr><td><a href="requirements.html">requirements.md</a></td><td>All requirements, IDs such as <code>REQ-###</code> and <code>DB-###</code> (never reused)</td></tr>
 <tr><td><a href="requirements/index.html">requirements/</a></td><td>Requirement sources, including general project conventions under <code>requirements/general/</code></td></tr>
 <tr><td><a href="requi.html">requi.db</a></td><td>Canonical semantic graph and migration state; <code>build</code> performs the one-time Markdown import, then SQLite drives projections and site rendering</td></tr>
@@ -21,7 +21,7 @@
 </tbody></table>
 <h2 id="conventions">Conventions</h2>
 <ul>
-<li><strong>Term file:</strong> H1 = display name; optional metadata line <code>&gt; <strong>Wikidata:</strong> <a href="url.html">Q####</a></code> / <code>&gt; <strong>Lexeme:</strong> <a href="lexemes/L.html####.md">L####</a></code>; sections <code>## Definition</code>, <code>## Layers</code>, <code>## Related terms</code>, <code>## Requirements</code>.</li>
+<li><strong>Term file:</strong> H1 = display name; optional metadata line <code>&gt; <strong>Wikidata:</strong> <a href="url.html">Q-###</a></code> / <code>&gt; <strong>Lexeme:</strong> <a href="lexemes/L-.html####.md">L-####</a></code>; sections <code>## Definition</code>, <code>## Layers</code>, <code>## Related terms</code>, <code>## Requirements</code>.</li>
 <li><strong>Bidirectional links:</strong> term ↔ requirement (<code>REQ-###</code>), term ↔ layer. Keep both sides or run <code>tools/requi.py check</code> which reports orphans (see <code>v_term_orphans</code>, <code>v_layer_orphans</code>).</li>
 <li><strong>SQLite source of truth:</strong> edit semantic entities through <code>tools/requi.py</code> or the database. Markdown under <code>terms/</code>, <code>layers/</code>, <code>requirements/</code>, and <code>lexemes/</code> is a generated SQLite projection; <code>check</code> reports semantic Markdown information absent from or different from SQLite.</li>
 <li><strong>Workflow:</strong> <code>python3 tools/requi.py build</code> (one-time migration) → use <code>add</code>/<code>update</code>/<code>delete</code> or SQL → <code>python3 tools/requi.py render</code> for Markdown projections → <code>python3 tools/site.py</code> renders managed pages directly from SQLite. <code>python3 tools/requi.py status</code> checks the same SQLite-backed source map.</li>

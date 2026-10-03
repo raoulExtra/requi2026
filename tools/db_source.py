@@ -65,7 +65,7 @@ def _set_state(db: sqlite3.Connection, key: str, value: str) -> None:
 def _term_metadata(text: str) -> tuple[str | None, str | None, int]:
     wikidata = re.search(r"^> \*\*Wikidata:\*\* \[([^]]+)\]", text, re.M)
     lexeme = re.search(r"^> \*\*Lexeme:\*\* \[[^]]+\]\(\.\./lexemes/([^/]+)\.md\)", text, re.M)
-    pending = bool(re.search(r"^> \*\*Lexeme:\*\* \*\(L-id via tools/wikidata\.py\)\*", text, re.M))
+    pending = bool(re.search(r"^> \*\*Lexeme:\*\* \*\(L-#### via tools/wikidata\.py\)\*", text, re.M))
     return (wikidata.group(1) if wikidata else None, lexeme.group(1) if lexeme else None, int(pending))
 
 
@@ -198,7 +198,7 @@ def _term_markdown(db: sqlite3.Connection, path: str) -> str:
     if lexeme_id:
         lines.extend([f"> **Lexeme:** [{lexeme_id}](../lexemes/{lexeme_id}.md)", ""])
     elif lexeme_pending:
-        lines.extend(["> **Lexeme:** *(L-id via tools/wikidata.py)*", ""])
+        lines.extend(["> **Lexeme:** *(L-#### via tools/wikidata.py)*", ""])
     lines.extend(["", "## Definition", definition, "", "## Layers"])
     for (layer_id,) in db.execute("SELECT layer_id FROM term_layers WHERE term_path = ? ORDER BY layer_id", (path,)):
         lines.append(f"- [{layer_id}](../layers/{layer_id}.md)")
@@ -254,7 +254,7 @@ def database_markdown(db: sqlite3.Connection) -> dict[str, str]:
     lexeme_entries = "\n".join(f"- [{lemma}]({lexeme_id}.md)" for lexeme_id, lemma, _, _ in lexeme_rows) or "(no lexemes yet)"
     sources["lexemes/_lexemes.md"] = (
         "# Lexemes (Wikidata)\n\n"
-        "One file per Wikidata Lexeme: `lexemes/L#####.md`, linked from term files.\n"
+        "One file per Wikidata Lexeme: `lexemes/L-#####.md`, linked from term files.\n"
         "Populated from `requi.db`.\n\n"
         "<!-- requi:begin lexemes -->\n"
         f"{lexeme_entries}\n"

@@ -1,7 +1,7 @@
 # Display Name
 
-> **Wikidata:** *(Q-id via tools/wikidata.py)*
-> **Lexeme:** *(L-id via tools/wikidata.py)*
+> **Wikidata:** *(Q-### via tools/wikidata.py)*
+> **Lexeme:** *(L-#### via tools/wikidata.py)*
 
 ## Definition
 One or two sentences.
