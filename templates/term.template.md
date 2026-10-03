@@ -6,6 +6,9 @@
 ## Definition
 One or two sentences.
 
+## Scopes
+- [scope-name](../scopes/scope-name.md)
+
 ## Layers
 - [frontend](../layers/frontend.md)
 

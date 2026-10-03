@@ -36,8 +36,10 @@ def ensure_schema(db: sqlite3.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS terms(path TEXT PRIMARY KEY, name TEXT, definition TEXT);
         CREATE TABLE IF NOT EXISTS layers(id TEXT PRIMARY KEY, title TEXT);
+        CREATE TABLE IF NOT EXISTS scopes(id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT NOT NULL DEFAULT '');
         CREATE TABLE IF NOT EXISTS requirements(id TEXT PRIMARY KEY, source TEXT, status TEXT);
         CREATE TABLE IF NOT EXISTS term_layers(term_path TEXT, layer_id TEXT, PRIMARY KEY(term_path, layer_id));
+        CREATE TABLE IF NOT EXISTS term_scopes(term_path TEXT, scope_id TEXT, PRIMARY KEY(term_path, scope_id));
         CREATE TABLE IF NOT EXISTS term_requirements(term_path TEXT, requirement_id TEXT, PRIMARY KEY(term_path, requirement_id));
         CREATE TABLE IF NOT EXISTS lexemes(id TEXT PRIMARY KEY, lemma TEXT NOT NULL, language TEXT NOT NULL, category TEXT NOT NULL, term_path TEXT);
         CREATE TABLE IF NOT EXISTS term_related(term_path TEXT, related_path TEXT, PRIMARY KEY(term_path, related_path));
@@ -51,6 +53,38 @@ def ensure_schema(db: sqlite3.Connection) -> None:
     _add_column(db, "requirements", "title", "TEXT NOT NULL DEFAULT ''")
     _add_column(db, "requirements", "layer_id", "TEXT")
     _add_column(db, "requirements", "body", "TEXT NOT NULL DEFAULT ''")
+    _add_column(db, "requirement_sources", "scope_id", "TEXT")
+    _sync_requirement_scopes(db)
+
+
+def _scope_id_for_source(source: str) -> str:
+    parts = Path(source).parts
+    return parts[1] if len(parts) > 2 else Path(source).stem
+
+
+def _scope_name(scope_id: str) -> str:
+    return scope_id.upper() if scope_id == "db" else scope_id.replace("-", " ").title()
+
+
+def _sync_requirement_scopes(db: sqlite3.Connection) -> None:
+    for source, title in db.execute("SELECT path, title FROM requirement_sources").fetchall():
+        scope_id = _scope_id_for_source(source)
+        db.execute(
+            "INSERT OR IGNORE INTO scopes(id, name, description) VALUES (?, ?, ?)",
+            (scope_id, _scope_name(scope_id), title),
+        )
+        db.execute("UPDATE requirement_sources SET scope_id = ? WHERE path = ?", (scope_id, source))
+
+
+
+def _term_scope_ids(text: str) -> list[str]:
+    return sorted(
+        {
+            Path(target).stem
+            for _, target in LINK.findall(_sections(text).get("scopes", ""))
+            if target.startswith("../scopes/") and target.endswith(".md")
+        }
+    )
 
 
 def _state(db: sqlite3.Connection, key: str) -> str | None:
@@ -91,8 +125,7 @@ def _term_row(path: Path) -> dict[str, object]:
         "wikidata_id": wikidata_id,
         "lexeme_id": lexeme_id,
         "lexeme_pending": lexeme_pending,
-        "layers": layers,
-        "related": related,
+        "scopes": _term_scope_ids(text),
         "requirements": requirements,
     }
 
@@ -136,7 +169,15 @@ def _import_requirements(db: sqlite3.Connection) -> None:
     db.execute("DELETE FROM requirements")
     for path, source_title, text in _requirement_sources():
         source = path.relative_to(ROOT).as_posix()
-        db.execute("INSERT INTO requirement_sources(path, title) VALUES (?, ?)", (source, source_title))
+        scope_id = _scope_id_for_source(source)
+        db.execute(
+            "INSERT OR IGNORE INTO scopes(id, name, description) VALUES (?, ?, ?)",
+            (scope_id, _scope_name(scope_id), source_title),
+        )
+        db.execute(
+            "INSERT INTO requirement_sources(path, title, scope_id) VALUES (?, ?, ?)",
+            (source, source_title, scope_id),
+        )
         for requirement_id, title, body, status, layer_id in _requirement_rows(text):
             db.execute(
                 "INSERT INTO requirements(id, source, status, title, layer_id, body) VALUES (?, ?, ?, ?, ?, ?)",
@@ -148,9 +189,9 @@ def import_markdown(db: sqlite3.Connection) -> None:
     """Perform the one-time Markdown-to-SQLite reconciliation."""
     ensure_schema(db)
     db.execute("DELETE FROM term_layers")
+    db.execute("DELETE FROM term_scopes")
     db.execute("DELETE FROM term_requirements")
     db.execute("DELETE FROM term_related")
-    db.execute("DELETE FROM terms")
     db.execute("DELETE FROM layers")
     db.execute("DELETE FROM lexemes")
     for path in sorted((ROOT / "terms").glob("*.md")):
@@ -161,6 +202,12 @@ def import_markdown(db: sqlite3.Connection) -> None:
         )
         for layer_id in row["layers"]:
             db.execute("INSERT INTO term_layers(term_path, layer_id) VALUES (?, ?)", (row["path"], layer_id))
+        for scope_id in row["scopes"]:
+            db.execute(
+                "INSERT OR IGNORE INTO scopes(id, name, description) VALUES (?, ?, '')",
+                (scope_id, _scope_name(scope_id)),
+            )
+            db.execute("INSERT INTO term_scopes(term_path, scope_id) VALUES (?, ?)", (row["path"], scope_id))
         for requirement_id in row["requirements"]:
             db.execute("INSERT INTO term_requirements(term_path, requirement_id) VALUES (?, ?)", (row["path"], requirement_id))
         for related_path in row["related"]:
@@ -199,7 +246,10 @@ def _term_markdown(db: sqlite3.Connection, path: str) -> str:
         lines.extend([f"> **Lexeme:** [{lexeme_id}](../lexemes/{lexeme_id}.md)", ""])
     elif lexeme_pending:
         lines.extend(["> **Lexeme:** *(L-#### via tools/wikidata.py)*", ""])
-    lines.extend(["", "## Definition", definition, "", "## Layers"])
+    lines.extend(["", "## Definition", definition, "", "## Scopes"])
+    for (scope_id,) in db.execute("SELECT scope_id FROM term_scopes WHERE term_path = ? ORDER BY scope_id", (path,)):
+        lines.append(f"- [{scope_id}](../scopes/{scope_id}.md)")
+    lines.extend(["", "## Layers"])
     for (layer_id,) in db.execute("SELECT layer_id FROM term_layers WHERE term_path = ? ORDER BY layer_id", (path,)):
         lines.append(f"- [{layer_id}](../layers/{layer_id}.md)")
     lines.extend(["", "## Related terms"])
@@ -214,6 +264,34 @@ def _term_markdown(db: sqlite3.Connection, path: str) -> str:
     ):
         lines.append(f"- [{requirement_id}](../{source}#{requirement_id.lower()})")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _scope_markdown(db: sqlite3.Connection, scope_id: str) -> str:
+    row = db.execute("SELECT name, description FROM scopes WHERE id = ?", (scope_id,)).fetchone()
+    if not row:
+        raise ValueError(f"scope not found: {scope_id}")
+    name, description = row
+    term_lines = [
+        f"- [{term_name}](../terms/{Path(term_path).name})"
+        for term_path, term_name in db.execute(
+            "SELECT t.path, t.name FROM terms AS t "
+            "JOIN term_scopes AS ts ON ts.term_path = t.path "
+            "WHERE ts.scope_id = ? ORDER BY lower(t.name)",
+            (scope_id,),
+        )
+    ]
+    source_lines = [
+        f"- [{title}](../{source})"
+        for source, title in db.execute(
+            "SELECT path, title FROM requirement_sources WHERE scope_id = ? ORDER BY path",
+            (scope_id,),
+        )
+    ]
+    return (
+        f"# {name}\n\n{description}\n\n"
+        f"## Terms\n\n{chr(10).join(term_lines) or '(no terms yet)'}\n\n"
+        f"## Requirement categories\n\n{chr(10).join(source_lines) or '(no requirement categories yet)'}\n"
+    )
 
 
 def _layer_markdown(db: sqlite3.Connection, layer_id: str) -> str:
@@ -244,6 +322,8 @@ def database_markdown(db: sqlite3.Connection) -> dict[str, str]:
     sources: dict[str, str] = {}
     for (path,) in db.execute("SELECT path FROM terms ORDER BY path"):
         sources[path] = _term_markdown(db, path)
+    for (scope_id,) in db.execute("SELECT id FROM scopes ORDER BY id"):
+        sources[f"scopes/{scope_id}.md"] = _scope_markdown(db, scope_id)
     for (layer_id,) in db.execute("SELECT id FROM layers ORDER BY id"):
         sources[f"layers/{layer_id}.md"] = _layer_markdown(db, layer_id)
     for (source,) in db.execute("SELECT path FROM requirement_sources ORDER BY path"):
@@ -289,15 +369,18 @@ def database_markdown(db: sqlite3.Connection) -> dict[str, str]:
         )
         glossary_rows.append(f"| [{name}]({path}) | {definition} | {related} | {requirements} |")
     sources["glossary.md"] = f"# Glossary\n\n<!-- requi:begin glossary -->\n{chr(10).join(glossary_rows)}\n<!-- requi:end -->\n"
-    categories: dict[str, tuple[str, str]] = {}
-    for source, _ in db.execute("SELECT path, title FROM requirement_sources ORDER BY path"):
-        parts = Path(source).parts
-        category = parts[1] if len(parts) > 2 else Path(source).stem
-        category_path = f"requirements/{category}/" if len(parts) > 2 else source
-        label = f"{category.upper() if category == 'db' else category.replace('-', ' ').title()} requirements"
-        categories[category] = (label, category_path)
+    scope_rows = "\n".join(
+        f"- [{name}]({scope_id}.md)"
+        for scope_id, name in db.execute("SELECT id, name FROM scopes ORDER BY lower(name), id")
+    ) or "(no scopes yet)"
+    sources["scopes/_scopes.md"] = f"# Scopes\n\n<!-- requi:begin scopes -->\n{scope_rows}\n<!-- requi:end -->\n"
     requirement_rows = "\n".join(
-        f"- [{label}]({path})" for label, path in sorted(categories.values())
+        f"- [{name}](scopes/{scope_id}.md)"
+        for scope_id, name in db.execute(
+            "SELECT s.id, s.name FROM scopes AS s "
+            "JOIN requirement_sources AS rs ON rs.scope_id = s.id "
+            "GROUP BY s.id, s.name ORDER BY lower(s.name), s.id"
+        )
     ) or "(no requirement categories yet)"
     sources["requirements.md"] = f"# Requirements\n\n<!-- requi:begin requirements -->\n{requirement_rows}\n<!-- requi:end -->\n"
     return sources
@@ -388,6 +471,8 @@ def render_database(db: sqlite3.Connection | None = None) -> None:
     sources = database_markdown(db)
     for path in (ROOT / "terms").glob("*.md"):
         path.unlink()
+    for path in (ROOT / "scopes").glob("*.md"):
+        path.unlink()
     expected_layers = {ROOT / path for path in sources if path.startswith("layers/") and path != "layers/_layers.md"}
     expected_requirements = {ROOT / path for path in sources if path.startswith("requirements/")}
     expected_lexemes = {ROOT / path for path in sources if path.startswith("lexemes/L")}
@@ -401,7 +486,7 @@ def render_database(db: sqlite3.Connection | None = None) -> None:
         if path not in expected_lexemes:
             path.unlink()
     for relative, content in sources.items():
-        if relative.startswith("terms/"):
+        if relative.startswith(("terms/", "scopes/")):
             continue
         target = ROOT / relative
         target.parent.mkdir(parents=True, exist_ok=True)

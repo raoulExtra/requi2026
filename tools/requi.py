@@ -7,7 +7,15 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
-from db_source import ensure_schema, import_markdown, markdown_database_differences, render_database, _layer_markdown, _term_markdown
+from db_source import (
+    ensure_schema,
+    import_markdown,
+    markdown_database_differences,
+    render_database,
+    _layer_markdown,
+    _scope_markdown,
+    _term_markdown,
+)
 from command_ast import load_commands, render_argparse, render_json, render_tree, select_commands
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,11 +33,16 @@ def render() -> None:
     subprocess.run([sys.executable, str(ROOT / "tools" / "site.py")], check=True)
 
 COMMANDS = (
-    ("add-term", "Create a term in SQLite and render its HTML page", "python3 tools/requi.py add-term NAME --definition TEXT [--layer ID]"),
+    ("add-term", "Create a term in SQLite and render its HTML page", "python3 tools/requi.py add-term NAME --definition TEXT [--layer ID] [--scope ID]"),
     ("list-terms", "List all database terms and HTML routes", "python3 tools/requi.py list-terms"),
     ("show-term", "Display one database term as Markdown", "python3 tools/requi.py show-term NAME"),
-    ("update-term", "Update a term in SQLite and render its HTML page", "python3 tools/requi.py update-term NAME [--definition TEXT] [--layer ID]"),
+    ("update-term", "Update a term in SQLite and render its HTML page", "python3 tools/requi.py update-term NAME [--definition TEXT] [--layer ID] [--scope ID]"),
     ("delete-term", "Delete a term from SQLite and rebuild HTML", "python3 tools/requi.py delete-term NAME"),
+    ("add-scope", "Create a scope in SQLite and render its HTML page", "python3 tools/requi.py add-scope NAME [--description TEXT]"),
+    ("list-scopes", "List all database scopes and HTML routes", "python3 tools/requi.py list-scopes"),
+    ("show-scope", "Display one database scope as Markdown", "python3 tools/requi.py show-scope NAME"),
+    ("update-scope", "Update a scope in SQLite and render its HTML page", "python3 tools/requi.py update-scope NAME [--description TEXT]"),
+    ("delete-scope", "Delete an unused scope from SQLite and rebuild HTML", "python3 tools/requi.py delete-scope NAME"),
     ("create", "Create a supported entity", "python3 tools/requi.py create ENTITY NAME"),
     ("read", "Read a supported entity or database view", "python3 tools/requi.py read ENTITY [NAME]"),
     ("update", "Update a supported entity", "python3 tools/requi.py update ENTITY NAME"),
@@ -42,11 +55,19 @@ COMMAND_ARGUMENTS = (
     ("add-term", "name", "positional", 1, "string", "Display name"),
     ("add-term", "definition", "--definition", 1, "string", "One-line definition"),
     ("add-term", "layer", "--layer", 0, "layer-id", "Layer ID, for example data"),
+    ("add-term", "scope", "--scope", 0, "scope-id", "Scope ID; repeat for multiple scopes"),
     ("show-term", "name", "positional", 1, "string", "Term display name"),
     ("update-term", "name", "positional", 1, "string", "Term display name"),
     ("update-term", "definition", "--definition", 0, "string", "Replacement definition"),
     ("update-term", "layer", "--layer", 0, "layer-id", "Replacement layer"),
+    ("update-term", "scope", "--scope", 0, "scope-id", "Replacement scopes; repeat for multiple scopes"),
     ("delete-term", "name", "positional", 1, "string", "Term display name"),
+    ("add-scope", "name", "positional", 1, "string", "Scope name"),
+    ("add-scope", "description", "--description", 0, "string", "Scope description"),
+    ("show-scope", "name", "positional", 1, "string", "Scope name"),
+    ("update-scope", "name", "positional", 1, "string", "Scope name"),
+    ("update-scope", "description", "--description", 0, "string", "Replacement description"),
+    ("delete-scope", "name", "positional", 1, "string", "Scope name"),
     ("ast", "name", "positional", 0, "command", "Command name; omit for all commands"),
     ("ast", "format", "--format", 0, "enum", "tree, json, or python"),
 )
@@ -94,6 +115,7 @@ def build() -> None:
         """
         CREATE VIEW v_entities AS
         SELECT 'term' AS kind, name, path AS source FROM terms
+        UNION ALL SELECT 'scope', name, 'scopes/' || id || '.md' FROM scopes
         UNION ALL SELECT 'layer', id, 'layers/' || id || '.md' FROM layers
         UNION ALL SELECT 'db-table', name, 'sqlite table' FROM sqlite_master
             WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
@@ -112,7 +134,7 @@ def build() -> None:
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")
     if not slug:
-        raise ValueError("term name produces an empty filename")
+        raise ValueError("name produces an empty identifier")
     return slug
 
 
@@ -134,8 +156,95 @@ def term_path(name: str) -> Path:
     db.close()
     return ROOT / row[0] if row else ROOT / "terms" / f"{slugify(name)}.md"
 
+def scope_ids(db: sqlite3.Connection, names: list[str]) -> list[str]:
+    ids: list[str] = []
+    for name in names:
+        row = db.execute(
+            "SELECT id FROM scopes WHERE lower(id) = lower(?) OR lower(name) = lower(?)",
+            (name, name),
+        ).fetchone()
+        if not row:
+            raise ValueError(f"unknown scope: {name}")
+        if row[0] not in ids:
+            ids.append(row[0])
+    return ids
 
-def add_term(name: str, definition: str, layer: str | None) -> None:
+
+def scope_route(scope_id: str) -> str:
+    return (Path("out") / "scopes" / f"{scope_id}.html").as_posix()
+
+
+def add_scope(name: str, description: str) -> None:
+    scope_id = slugify(name)
+    db = source_db()
+    if db.execute("SELECT 1 FROM scopes WHERE id = ? OR lower(name) = lower(?)", (scope_id, name)).fetchone():
+        db.close()
+        raise ValueError(f"scope already exists: {scope_id}")
+    db.execute("INSERT INTO scopes(id, name, description) VALUES (?, ?, ?)", (scope_id, name, description))
+    db.commit()
+    db.close()
+    render()
+    print(scope_route(scope_id))
+
+
+def list_scopes() -> None:
+    db = source_db()
+    for scope_id, name in db.execute("SELECT id, name FROM scopes ORDER BY lower(name), id"):
+        print(f"{name}\t{scope_route(scope_id)}")
+    db.close()
+
+
+def show_scope(name: str) -> None:
+    db = source_db()
+    row = db.execute(
+        "SELECT id FROM scopes WHERE lower(id) = lower(?) OR lower(name) = lower(?)",
+        (name, name),
+    ).fetchone()
+    if not row:
+        db.close()
+        raise ValueError(f"scope not found: {name}")
+    print(_scope_markdown(db, row[0]), end="")
+    db.close()
+
+
+def update_scope(name: str, description: str | None) -> None:
+    db = source_db()
+    row = db.execute(
+        "SELECT id FROM scopes WHERE lower(id) = lower(?) OR lower(name) = lower(?)",
+        (name, name),
+    ).fetchone()
+    if not row:
+        db.close()
+        raise ValueError(f"scope not found: {name}")
+    if description is not None:
+        db.execute("UPDATE scopes SET description = ? WHERE id = ?", (description, row[0]))
+    db.commit()
+    db.close()
+    render()
+
+
+def delete_scope(name: str) -> None:
+    db = source_db()
+    row = db.execute(
+        "SELECT id FROM scopes WHERE lower(id) = lower(?) OR lower(name) = lower(?)",
+        (name, name),
+    ).fetchone()
+    if not row:
+        db.close()
+        raise ValueError(f"scope not found: {name}")
+    scope_id = row[0]
+    used_by_terms = db.execute("SELECT 1 FROM term_scopes WHERE scope_id = ? LIMIT 1", (scope_id,)).fetchone()
+    used_by_requirements = db.execute("SELECT 1 FROM requirement_sources WHERE scope_id = ? LIMIT 1", (scope_id,)).fetchone()
+    if used_by_terms or used_by_requirements:
+        db.close()
+        raise ValueError(f"scope is in use: {scope_id}")
+    db.execute("DELETE FROM scopes WHERE id = ?", (scope_id,))
+    db.commit()
+    db.close()
+    render()
+
+
+def add_term(name: str, definition: str, layer: str | None, scopes: list[str] | None = None) -> None:
     path = term_path(name)
     db = source_db()
     if db.execute("SELECT 1 FROM terms WHERE lower(name) = lower(?)", (name,)).fetchone():
@@ -144,10 +253,13 @@ def add_term(name: str, definition: str, layer: str | None) -> None:
     if layer and not db.execute("SELECT 1 FROM layers WHERE id = ?", (layer,)).fetchone():
         db.close()
         raise ValueError(f"unknown layer: {layer}")
+    scope_ids_to_add = scope_ids(db, scopes or [])
     relative = path.relative_to(ROOT).as_posix()
     db.execute("INSERT INTO terms(path, name, definition) VALUES (?, ?, ?)", (relative, name, definition))
     if layer:
         db.execute("INSERT INTO term_layers(term_path, layer_id) VALUES (?, ?)", (relative, layer))
+    for scope_id in scope_ids_to_add:
+        db.execute("INSERT INTO term_scopes(term_path, scope_id) VALUES (?, ?)", (relative, scope_id))
     db.commit()
     db.close()
     render()
@@ -171,7 +283,12 @@ def show_term(name: str) -> None:
     db.close()
 
 
-def update_term(name: str, definition: str | None, layer: str | None) -> None:
+def update_term(
+    name: str,
+    definition: str | None,
+    layer: str | None,
+    scopes: list[str] | None = None,
+) -> None:
     db = source_db()
     row = db.execute("SELECT path FROM terms WHERE lower(name) = lower(?)", (name,)).fetchone()
     if not row:
@@ -185,6 +302,11 @@ def update_term(name: str, definition: str | None, layer: str | None) -> None:
             raise ValueError(f"unknown layer: {layer}")
         db.execute("DELETE FROM term_layers WHERE term_path = ?", (row[0],))
         db.execute("INSERT INTO term_layers(term_path, layer_id) VALUES (?, ?)", (row[0], layer))
+    if scopes is not None:
+        scope_ids_to_set = scope_ids(db, scopes)
+        db.execute("DELETE FROM term_scopes WHERE term_path = ?", (row[0],))
+        for scope_id in scope_ids_to_set:
+            db.execute("INSERT INTO term_scopes(term_path, scope_id) VALUES (?, ?)", (row[0], scope_id))
     db.commit()
     db.close()
     render()
@@ -198,6 +320,7 @@ def delete_term(name: str) -> None:
         raise ValueError(f"term not found: {name}")
     relative = row[0]
     db.execute("DELETE FROM term_layers WHERE term_path = ?", (relative,))
+    db.execute("DELETE FROM term_scopes WHERE term_path = ?", (relative,))
     db.execute("DELETE FROM term_requirements WHERE term_path = ?", (relative,))
     db.execute("DELETE FROM term_related WHERE term_path = ? OR related_path = ?", (relative, relative))
     db.execute("DELETE FROM terms WHERE path = ?", (relative,))
@@ -299,17 +422,24 @@ def check() -> int:
         errors.append("requi_state source_mode is not sqlite")
     term_paths = {path for (path,) in db.execute("SELECT path FROM terms")}
     layer_ids = {layer_id for (layer_id,) in db.execute("SELECT id FROM layers")}
+    scope_ids_set = {scope_id for (scope_id,) in db.execute("SELECT id FROM scopes")}
     requirement_ids = {requirement_id for (requirement_id,) in db.execute("SELECT id FROM requirements")}
     for path in term_paths:
         for (layer_id,) in db.execute("SELECT layer_id FROM term_layers WHERE term_path = ?", (path,)):
             if layer_id not in layer_ids:
                 errors.append(f"{path}: missing layer {layer_id}")
+        for (scope_id,) in db.execute("SELECT scope_id FROM term_scopes WHERE term_path = ?", (path,)):
+            if scope_id not in scope_ids_set:
+                errors.append(f"{path}: missing scope {scope_id}")
         for (requirement_id,) in db.execute("SELECT requirement_id FROM term_requirements WHERE term_path = ?", (path,)):
             if requirement_id not in requirement_ids:
                 errors.append(f"{path}: missing requirement {requirement_id}")
         for (related_path,) in db.execute("SELECT related_path FROM term_related WHERE term_path = ?", (path,)):
             if related_path not in term_paths:
                 errors.append(f"{path}: missing related term {related_path}")
+    for (scope_id,) in db.execute("SELECT scope_id FROM requirement_sources WHERE scope_id IS NOT NULL"):
+        if scope_id not in scope_ids_set:
+            errors.append(f"requirement source: missing scope {scope_id}")
     for layer_id in layer_ids:
         if not (ROOT / "layers" / f"{layer_id}.md").exists():
             errors.append(f"missing generated layer: layers/{layer_id}.md")
@@ -322,7 +452,10 @@ def check() -> int:
         print("CHECK FAILED")
         print("\n".join(f"- {error}" for error in errors))
         return 1
-    print(f"CHECK OK: {len(term_paths)} terms, {len(layer_ids)} layers, {referenced} referenced requirements")
+    print(
+        f"CHECK OK: {len(term_paths)} terms, {len(layer_ids)} layers, "
+        f"{len(scope_ids_set)} scopes, {referenced} referenced requirements"
+    )
     return 0
 def site_status() -> int:
     return subprocess.run([sys.executable, str(ROOT / "tools" / "site.py"), "--status"], check=False).returncode
@@ -364,44 +497,62 @@ def main() -> int:
     add.add_argument("name")
     add.add_argument("--definition", required=True)
     add.add_argument("--layer")
+    add.add_argument("--scope", action="append")
+    add_scope_parser = sub.add_parser("add-scope", help="Create a scope in SQLite and render its HTML page")
+    add_scope_parser.add_argument("name")
+    add_scope_parser.add_argument("--description", default="")
     add_short = sub.add_parser("add")
     add_short.add_argument("name", nargs="+")
     add_short.add_argument("--definition", default="")
     add_short.add_argument("--layer")
+    add_short.add_argument("--scope", action="append")
     listing = sub.add_parser("list-terms", help=catalog["list-terms"][0])
     listing.set_defaults()
+    list_scopes_parser = sub.add_parser("list-scopes", help="List all database scopes and HTML routes")
+    list_scopes_parser.set_defaults()
     show = sub.add_parser("show-term", help=catalog["show-term"][0])
     show.add_argument("name")
+    show_scope_parser = sub.add_parser("show-scope", help="Display one database scope as Markdown")
+    show_scope_parser.add_argument("name")
     update = sub.add_parser("update-term", help=catalog["update-term"][0])
     update.add_argument("name")
     update.add_argument("--definition")
     update.add_argument("--layer")
+    update.add_argument("--scope", action="append")
+    update_scope_parser = sub.add_parser("update-scope", help="Update a scope in SQLite and render its HTML page")
+    update_scope_parser.add_argument("name")
+    update_scope_parser.add_argument("--description")
     delete = sub.add_parser("delete-term", help=catalog["delete-term"][0])
     delete.add_argument("name")
+    delete_scope_parser = sub.add_parser("delete-scope", help="Delete an unused scope from SQLite and rebuild HTML")
+    delete_scope_parser.add_argument("name")
     create = sub.add_parser("create")
-    create.add_argument("entity", choices=["term", "layer"])
+    create.add_argument("entity", choices=["term", "layer", "scope"])
     create.add_argument("name")
     create.add_argument("--definition")
     create.add_argument("--description")
     create.add_argument("--layer")
+    create.add_argument("--scope", action="append")
     read = sub.add_parser("read")
-    read.add_argument("entity", choices=["term", "layer", "view"])
+    read.add_argument("entity", choices=["term", "layer", "scope", "view"])
     read.add_argument("name", nargs="?")
     update = sub.add_parser("update")
-    update.add_argument("entity", choices=["term", "layer"])
+    update.add_argument("entity", choices=["term", "layer", "scope"])
     update.add_argument("name")
     update.add_argument("--definition")
     update.add_argument("--description")
     update.add_argument("--layer")
+    update.add_argument("--scope", action="append")
     delete = sub.add_parser("delete")
-    delete.add_argument("entity", choices=["term", "layer"])
+    delete.add_argument("entity", choices=["term", "layer", "scope"])
     delete.add_argument("name")
     list_entity = sub.add_parser("list")
-    list_entity.add_argument("entity", choices=["term", "layer", "lexeme", "view"])
+    list_entity.add_argument("entity", choices=["term", "layer", "scope", "lexeme", "view"])
     upd = sub.add_parser("upd")
     upd.add_argument("name")
     upd.add_argument("--definition")
     upd.add_argument("--layer")
+    upd.add_argument("--scope", action="append")
     short_delete = sub.add_parser("del")
     short_delete.add_argument("name", nargs="+")
     args = parser.parse_args()
@@ -438,45 +589,67 @@ def main() -> int:
                 raise ValueError("usage: add layer NAME")
             create_layer(" ".join(args.name[1:]), args.definition)
             return 0
+        if args.name and args.name[0].casefold() == "scope":
+            if len(args.name) < 2:
+                raise ValueError("usage: add scope NAME")
+            add_scope(" ".join(args.name[1:]), args.definition)
+            return 0
         if args.name and args.name[0].casefold() == "term":
             if len(args.name) < 2:
                 raise ValueError("usage: add term NAME")
             name = " ".join(args.name[1:])
         else:
             name = " ".join(args.name)
-        add_term(name, args.definition, args.layer)
+        add_term(name, args.definition, args.layer, args.scope)
         return 0
     if args.command == "del":
         delete_term(" ".join(args.name))
         return 0
     if args.command == "upd":
-        update_term(args.name, args.definition, args.layer)
+        update_term(args.name, args.definition, args.layer, args.scope)
         return 0
     if args.command == "create":
         if args.entity == "term":
-            add_term(args.name, args.definition or "", args.layer)
-        else:
+            add_term(args.name, args.definition or "", args.layer, args.scope)
+        elif args.entity == "layer":
             create_layer(args.name, args.description or "")
+        else:
+            add_scope(args.name, args.description or "")
         return 0
     if args.command == "read":
         if args.entity == "term":
             show_term(args.name)
         elif args.entity == "layer":
             read_layer(args.name)
+        elif args.entity == "scope":
+            show_scope(args.name)
         else:
             list_db_views()
         return 0
     if args.command == "update":
         if args.entity == "term":
-            update_term(args.name, args.definition, args.layer)
-        else:
+            update_term(args.name, args.definition, args.layer, args.scope)
+        elif args.entity == "layer":
             update_layer(args.name, args.description)
+        else:
+            update_scope(args.name, args.description)
         return 0
     if args.command == "delete":
-        delete_term(args.name) if args.entity == "term" else delete_layer(args.name)
+        if args.entity == "term":
+            delete_term(args.name)
+        elif args.entity == "layer":
+            delete_layer(args.name)
+        else:
+            delete_scope(args.name)
         return 0
     if args.command == "list":
-        {"term": list_terms, "layer": list_layers, "lexeme": list_lexemes, "view": list_db_views}[args.entity]()
+        {
+            "term": list_terms,
+            "scope": list_scopes,
+            "layer": list_layers,
+            "lexeme": list_lexemes,
+            "view": list_db_views,
+        }[args.entity]()
         return 0
     if args.command == "build":
         build()
@@ -492,15 +665,25 @@ def main() -> int:
             print("\t".join("" if value is None else str(value) for value in row))
         db.close()
     elif args.command == "add-term":
-        add_term(args.name, args.definition, args.layer)
+        add_term(args.name, args.definition, args.layer, args.scope)
     elif args.command == "list-terms":
         list_terms()
     elif args.command == "show-term":
         show_term(args.name)
     elif args.command == "update-term":
-        update_term(args.name, args.definition, args.layer)
+        update_term(args.name, args.definition, args.layer, args.scope)
     elif args.command == "delete-term":
         delete_term(args.name)
+    elif args.command == "add-scope":
+        add_scope(args.name, args.description)
+    elif args.command == "list-scopes":
+        list_scopes()
+    elif args.command == "show-scope":
+        show_scope(args.name)
+    elif args.command == "update-scope":
+        update_scope(args.name, args.description)
+    elif args.command == "delete-scope":
+        delete_scope(args.name)
     return 0
 
 

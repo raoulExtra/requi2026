@@ -1,6 +1,6 @@
 # Requirements
 
 <!-- requi:begin requirements -->
-- [DB requirements](requirements/db.md)
-- [General requirements](requirements/general/)
+- [DB](scopes/db.md)
+- [General](scopes/general.md)
 <!-- requi:end -->

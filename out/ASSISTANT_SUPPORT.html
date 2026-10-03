@@ -10,8 +10,8 @@
 <li>Inspect the repository structure and Markdown files.</li>
 <li>Check requirement IDs, statuses, sources, anchors, and cross-links.</li>
 <li>Review proposals returned by the local model.</li>
-<li>Create or update requirement and term pages.</li>
-<li>Keep <code>requirements.md</code>, <code>glossary.md</code>, and term back-links synchronized.</li>
+<li>Create or update requirement, scope, and term pages.</li>
+<li>Keep <code>requirements.md</code>, <code>glossary.md</code>, scope indexes, and term back-links synchronized.</li>
 <li>Run read-only consistency checks and report exact failures.</li>
 <li>Open and verify project tools when a user-facing interface is added.</li>
 </ul>
@@ -34,7 +34,6 @@
 <ul>
 <li>Requirement IDs use <code>REQ-###</code>; IDs are never reused or renumbered.</li>
 <li>Requirement status is <code>PROPOSED</code>, <code>ACTIVE</code>, or <code>RETIRED</code>.</li>
-<li>Terms are stored in <code>requi.db</code> and rendered to <code>out/terms/&lt;kebab-case-name&gt;.html</code>; they do not require <code>terms/*.md</code> files.</li>
-<li>Requirement-to-term and term-to-requirement links are bidirectional.</li>
+<li>Terms are stored in <code>requi.db</code> and rendered to <code>out/terms/&lt;kebab-case-name&gt;.html</code>; scopes are stored in <code>requi.db</code> and rendered to <code>out/scopes/&lt;scope-id&gt;.html</code>.</li>
 <li>Keep example content clearly marked or remove it when real project content is added.</li>
 </ul></main>

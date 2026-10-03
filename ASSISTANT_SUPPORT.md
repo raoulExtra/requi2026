@@ -7,8 +7,8 @@ This project can receive support from the primary coding assistant as well as th
 - Inspect the repository structure and Markdown files.
 - Check requirement IDs, statuses, sources, anchors, and cross-links.
 - Review proposals returned by the local model.
-- Create or update requirement and term pages.
-- Keep `requirements.md`, `glossary.md`, and term back-links synchronized.
+- Create or update requirement, scope, and term pages.
+- Keep `requirements.md`, `glossary.md`, scope indexes, and term back-links synchronized.
 - Run read-only consistency checks and report exact failures.
 - Open and verify project tools when a user-facing interface is added.
 
@@ -41,6 +41,5 @@ The local model and helper are advisory. They do not have permission to silently
 
 - Requirement IDs use `REQ-###`; IDs are never reused or renumbered.
 - Requirement status is `PROPOSED`, `ACTIVE`, or `RETIRED`.
-- Terms are stored in `requi.db` and rendered to `out/terms/<kebab-case-name>.html`; they do not require `terms/*.md` files.
-- Requirement-to-term and term-to-requirement links are bidirectional.
+- Terms are stored in `requi.db` and rendered to `out/terms/<kebab-case-name>.html`; scopes are stored in `requi.db` and rendered to `out/scopes/<scope-id>.html`.
 - Keep example content clearly marked or remove it when real project content is added.

@@ -19,9 +19,9 @@ SYSTEM_PROMPT = """You are a requirements-engineering assistant working on a loc
 Project rules:
 - Requirements use IDs REQ-### and are never reused or renumbered.
 - Each requirement has Status (PROPOSED, ACTIVE, or RETIRED) and Source.
-- Terms are stored in `requi.db` and rendered to `out/terms/<kebab-case-name>.html`; they do not require `terms/*.md` files.
+- Terms and scopes are stored in `requi.db`; terms render to `out/terms/<kebab-case-name>.html` and scopes render to `out/scopes/<scope-id>.html`.
+- Terms may belong to multiple scopes; scope pages group terms and requirement categories.
 - Requirement links to terms and terms link back to requirements.
-- Keep requirements.md, glossary.md, and related term pages synchronized in the generated HTML site.
 - Do not invent facts or silently edit files.
 
 Review the supplied project context. Answer the user's request with concrete file paths,

@@ -139,6 +139,7 @@ def _is_database_projection(relative: str) -> bool:
     path = Path(relative)
     return relative in {"glossary.md", "requirements.md"} or path.parts[:1] in {
         ("terms",),
+        ("scopes",),
         ("layers",),
         ("requirements",),
         ("lexemes",),
