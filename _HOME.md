@@ -11,7 +11,7 @@ Jump between **terms** (glossary), **layers** (architecture), and **software req
 | [layers/frontend.md](layers/frontend.md) … | One file per layer: terms, requirements, code paths |
 | [Lexeme index](lexeme/_lexeme.md) | One file per Wikidata Lexeme `L-#####` |
 | [requirements.md](requirements.md) | All requirements, IDs such as `REQ-###` and `DB-###` (never reused) |
-| [requirements/](requirements/) | Optional detail file per requirement |
+| [requirements/](requirements/) | Requirement sources, including general project conventions under `requirements/general/` |
 | [requi.db](requi.db) | Canonical semantic graph and migration state; `build` performs the one-time Markdown import, then SQLite drives projections and site rendering |
 | [tools/wikidata.py](tools/wikidata.py) | Exact Wikidata item lookup and SPARQL Lexeme lookup; writes resolved metadata to `requi.db` |
 | [tools/requi.py](tools/requi.py) | `build` (schema/migration) · `render` (db→md) · `ast` (command tree/JSON/parser generator) · `db status` · `db list lexemes` · `list lexeme` · `q "<sql>"` · `check` |

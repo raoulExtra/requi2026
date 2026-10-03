@@ -106,7 +106,7 @@ def _layer_row(path: Path) -> dict[str, str]:
 
 def _requirement_sources() -> list[tuple[Path, str, str]]:
     result = []
-    for path in sorted((ROOT / "requirements").glob("*.md")):
+    for path in sorted((ROOT / "requirements").rglob("*.md")):
         text = path.read_text(encoding="utf-8")
         result.append((path, _title(text), text))
     return result
@@ -411,7 +411,7 @@ def render_database(db: sqlite3.Connection | None = None) -> None:
     for path in (ROOT / "layers").glob("*.md"):
         if path.name != "_layers.md" and path not in expected_layers:
             path.unlink()
-    for path in (ROOT / "requirements").glob("*.md"):
+    for path in (ROOT / "requirements").rglob("*.md"):
         if path not in expected_requirements:
             path.unlink()
     for path in (ROOT / "lexeme").glob("L*.md"):
