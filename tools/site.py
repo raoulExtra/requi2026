@@ -23,7 +23,7 @@ def href(target: str, source: Path) -> str:
         target, anchor = target.split("#", 1)
     resolved = (source.parent / target).resolve()
     target_rel = resolved.relative_to(ROOT)
-    target_rel = (target_rel / "index.html") if target.endswith("/") else target_rel.with_suffix(".html")
+    target_rel = (target_rel / "index.html") if target.endswith("/") else target_rel.with_suffix(".html") if target.endswith(".md") else target_rel
     source_rel = source.relative_to(ROOT)
     return Path(__import__("os").path.relpath(target_rel, source_rel.parent)).as_posix() + (f"#{anchor}" if anchor else "")
 def inline(text: str, source: Path) -> str:
@@ -235,15 +235,10 @@ def main() -> None:
             encoding="utf-8",
         )
 
-    links = "\n".join(
-        f'<li><a href="{path.relative_to(OUT).as_posix()}">{path.relative_to(OUT).with_suffix("").as_posix()}</a></li>'
-        for path in sorted(OUT.rglob("*.html"))
-    )
     (OUT / "index.html").write_text(
-        '<!doctype html><meta charset="utf-8"><title>Requi</title>'
-        '<style>body{font:16px system-ui,sans-serif;max-width:68rem;margin:2rem auto}a{color:#06c}</style>'
-        '<h1>Requi</h1><p>Clickable generated HTML for every database entity and Markdown source.</p><ul>'
-        + links + "</ul>",
+        '<!doctype html><meta charset="utf-8">'
+        '<meta http-equiv="refresh" content="0; url=_HOME.html">'
+        '<title>Requi</title><a href="_HOME.html">Open Requi home</a>',
         encoding="utf-8",
     )
     print(f"Generated {len(sources)} HTML pages in {OUT.relative_to(ROOT)}/")
