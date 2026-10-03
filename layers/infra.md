@@ -9,7 +9,7 @@ Build, packaging, CI, deployment, OS integration (Wayland/X11).
 (no scopes yet)
 
 <!-- requi:begin layer-terms-infra -->
-- [Tauri](../terms/tauri.md)
+(no terms yet)
 <!-- requi:end -->
 
 <!-- requi:begin layer-reqs-infra -->

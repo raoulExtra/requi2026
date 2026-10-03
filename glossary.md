@@ -22,7 +22,6 @@
 | [State machine](terms/state-machine.md) | Avatar states (waiting/thinking/success/error) plus transient success/error timers with per-frame application precedence. |  |  |
 | [Syntax probe](terms/syntax-probe.md) |  |  |  |
 | [Table](terms/table.md) | A named collection of rows organized into columns within a relational or tabular data store. | [column](terms/column.md), [index](terms/index.md), [row](terms/row.md) |  |
-| [Tauri](terms/tauri.md) | Rust-based desktop app framework chosen for transparent, frameless, always-on-top Wayland windows. |  |  |
 | [test](terms/test.md) |  |  |  |
 | [Update](terms/update.md) | Modify an existing resource or record. |  |  |
 | [verification](terms/verification.md) |  |  |  |

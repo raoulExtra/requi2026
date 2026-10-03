@@ -1,8 +1,6 @@
 # Layer: backend
 
-Host process logic: Tauri Rust core, services, window management.
-
-**Code:** *(link main source paths here)*
+Host process logic: Rust core, services, window management.
 
 ## Scopes
 
@@ -12,7 +10,6 @@ Host process logic: Tauri Rust core, services, window management.
 - [Create](../terms/create.md)
 - [Delete](../terms/delete.md)
 - [Read](../terms/read.md)
-- [Tauri](../terms/tauri.md)
 - [Update](../terms/update.md)
 <!-- requi:end -->
 
