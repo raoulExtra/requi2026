@@ -141,7 +141,7 @@ def _is_database_projection(relative: str) -> bool:
         ("terms",),
         ("layers",),
         ("requirements",),
-        ("lexeme",),
+        ("lexemes",),
     }
 
 

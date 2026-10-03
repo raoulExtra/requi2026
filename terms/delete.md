@@ -1,5 +1,5 @@
 # Delete
-> **Lexeme:** [L516](../lexeme/L516.md)
+> **Lexeme:** [L516](../lexemes/L516.md)
 
 
 ## Definition

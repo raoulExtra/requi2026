@@ -1,5 +1,5 @@
 # Update
-> **Lexeme:** [L515](../lexeme/L515.md)
+> **Lexeme:** [L515](../lexemes/L515.md)
 
 
 ## Definition

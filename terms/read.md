@@ -1,5 +1,5 @@
 # Read
-> **Lexeme:** [L514](../lexeme/L514.md)
+> **Lexeme:** [L514](../lexemes/L514.md)
 
 
 ## Definition

@@ -1,5 +1,5 @@
 # Create
-> **Lexeme:** [L9](../lexeme/L9.md)
+> **Lexeme:** [L9](../lexemes/L9.md)
 
 
 ## Definition

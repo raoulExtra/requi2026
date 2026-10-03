@@ -64,7 +64,7 @@ def _set_state(db: sqlite3.Connection, key: str, value: str) -> None:
 
 def _term_metadata(text: str) -> tuple[str | None, str | None, int]:
     wikidata = re.search(r"^> \*\*Wikidata:\*\* \[([^]]+)\]", text, re.M)
-    lexeme = re.search(r"^> \*\*Lexeme:\*\* \[[^]]+\]\(\.\./lexeme/([^/]+)\.md\)", text, re.M)
+    lexeme = re.search(r"^> \*\*Lexeme:\*\* \[[^]]+\]\(\.\./lexemes/([^/]+)\.md\)", text, re.M)
     pending = bool(re.search(r"^> \*\*Lexeme:\*\* \*\(L-id via tools/wikidata\.py\)\*", text, re.M))
     return (wikidata.group(1) if wikidata else None, lexeme.group(1) if lexeme else None, int(pending))
 
@@ -169,7 +169,7 @@ def import_markdown(db: sqlite3.Connection) -> None:
         if path.name != "_layers.md":
             row = _layer_row(path)
             db.execute("INSERT INTO layers(id, title, description) VALUES (?, ?, ?)", (row["id"], row["title"], row["description"]))
-    for path in sorted((ROOT / "lexeme").glob("L*.md")):
+    for path in sorted((ROOT / "lexemes").glob("L*.md")):
         text = path.read_text(encoding="utf-8")
         lemma = _title(text)
         language = re.search(r"^- \*\*Language:\*\* ([^\n]+)$", text, re.M)
@@ -196,7 +196,7 @@ def _term_markdown(db: sqlite3.Connection, path: str) -> str:
     if wikidata_id:
         lines.extend([f"> **Wikidata:** [{wikidata_id}](https://www.wikidata.org/wiki/{wikidata_id})", ""])
     if lexeme_id:
-        lines.extend([f"> **Lexeme:** [{lexeme_id}](../lexeme/{lexeme_id}.md)", ""])
+        lines.extend([f"> **Lexeme:** [{lexeme_id}](../lexemes/{lexeme_id}.md)", ""])
     elif lexeme_pending:
         lines.extend(["> **Lexeme:** *(L-id via tools/wikidata.py)*", ""])
     lines.extend(["", "## Definition", definition, "", "## Layers"])
@@ -245,18 +245,18 @@ def database_markdown(db: sqlite3.Connection) -> dict[str, str]:
         sources[source] = _requirement_markdown(db, source)
     lexeme_rows = db.execute("SELECT id, lemma, language, category FROM lexemes ORDER BY lower(lemma), id").fetchall()
     for lexeme_id, lemma, language, category in lexeme_rows:
-        sources[f"lexeme/{lexeme_id}.md"] = (
+        sources[f"lexemes/{lexeme_id}.md"] = (
             f"# {lemma}\n\n"
             f"- **Wikidata Lexeme:** [{lexeme_id}](https://www.wikidata.org/wiki/{lexeme_id})\n"
             f"- **Language:** {language}\n"
             f"- **Lexical category:** {category}\n"
         )
     lexeme_entries = "\n".join(f"- [{lemma}]({lexeme_id}.md)" for lexeme_id, lemma, _, _ in lexeme_rows) or "(no lexemes yet)"
-    sources["lexeme/_lexeme.md"] = (
+    sources["lexemes/_lexemes.md"] = (
         "# Lexemes (Wikidata)\n\n"
-        "One file per Wikidata Lexeme: `lexeme/L-#####.md`, linked from term files.\n"
+        "One file per Wikidata Lexeme: `lexemes/L-#####.md`, linked from term files.\n"
         "Populated from `requi.db`.\n\n"
-        "<!-- requi:begin lexeme -->\n"
+        "<!-- requi:begin lexemes -->\n"
         f"{lexeme_entries}\n"
         "<!-- requi:end -->\n"
     )
@@ -382,18 +382,18 @@ def markdown_database_differences(db: sqlite3.Connection) -> list[str]:
         )
     }
     md_lexemes = {}
-    for path in (ROOT / "lexeme").glob("L*.md"):
+    for path in (ROOT / "lexemes").glob("L*.md"):
         text = path.read_text(encoding="utf-8")
         language = re.search(r"^- \*\*Language:\*\* ([^\n]+)$", text, re.M)
         category = re.search(r"^- \*\*Lexical category:\*\* ([^\n]+)$", text, re.M)
         md_lexemes[path.stem] = (_title(text), language.group(1).strip() if language else "", category.group(1).strip() if category else "")
     for lexeme_id in sorted(set(md_lexemes) - set(db_lexemes)):
-        errors.append(f"lexeme/{lexeme_id}.md: Markdown lexeme is absent from SQLite")
+        errors.append(f"lexemes/{lexeme_id}.md: Markdown lexeme is absent from SQLite")
     for lexeme_id in sorted(set(db_lexemes) - set(md_lexemes)):
-        errors.append(f"lexeme/{lexeme_id}.md: SQLite lexeme has no Markdown projection")
+        errors.append(f"lexemes/{lexeme_id}.md: SQLite lexeme has no Markdown projection")
     for lexeme_id in sorted(set(md_lexemes) & set(db_lexemes)):
         if md_lexemes[lexeme_id] != db_lexemes[lexeme_id]:
-            errors.append(f"lexeme/{lexeme_id}.md: fields differ between Markdown and SQLite")
+            errors.append(f"lexemes/{lexeme_id}.md: fields differ between Markdown and SQLite")
     return errors
 
 
@@ -404,7 +404,7 @@ def render_database(db: sqlite3.Connection | None = None) -> None:
     expected_terms = {ROOT / path for path in sources if path.startswith("terms/")}
     expected_layers = {ROOT / path for path in sources if path.startswith("layers/") and path != "layers/_layers.md"}
     expected_requirements = {ROOT / path for path in sources if path.startswith("requirements/")}
-    expected_lexemes = {ROOT / path for path in sources if path.startswith("lexeme/L")}
+    expected_lexemes = {ROOT / path for path in sources if path.startswith("lexemes/L")}
     for path in (ROOT / "terms").glob("*.md"):
         if path not in expected_terms:
             path.unlink()
@@ -414,7 +414,7 @@ def render_database(db: sqlite3.Connection | None = None) -> None:
     for path in (ROOT / "requirements").rglob("*.md"):
         if path not in expected_requirements:
             path.unlink()
-    for path in (ROOT / "lexeme").glob("L*.md"):
+    for path in (ROOT / "lexemes").glob("L*.md"):
         if path not in expected_lexemes:
             path.unlink()
     for relative, content in sources.items():
