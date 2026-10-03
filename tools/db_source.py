@@ -498,8 +498,34 @@ def database_markdown(db: sqlite3.Connection) -> dict[str, str]:
         for layer_id, title in db.execute("SELECT id, title FROM layers ORDER BY id")
     ) or "(no layers yet)"
     sources["layers/_layers.md"] = f"# Layers\n\n<!-- requi:begin layers -->\n{layer_rows}\n<!-- requi:end -->\n"
-    glossary_rows = ["| Term | One-liner | Terms (related) | Requirements |", "|---|---|---|---|"]
+    glossary_scope_rows = [
+        f"- [{name}](scopes/{scope_id}.md) — {term_count} term(s)"
+        for scope_id, name, term_count in db.execute(
+            "SELECT s.id, s.name, COUNT(ts.term_path) "
+            "FROM scopes AS s JOIN term_scopes AS ts ON ts.scope_id = s.id "
+            "GROUP BY s.id, s.name ORDER BY lower(s.name), s.id"
+        )
+    ]
+    glossary_rows = [
+        "## Scopes",
+        "",
+        "\n".join(glossary_scope_rows) or "(no scoped terms yet)",
+        "",
+        "## Terms",
+        "",
+        "| Term | Scope(s) | One-liner | Terms (related) | Requirements |",
+        "|---|---|---|---|---|",
+    ]
     for path, name, definition in db.execute("SELECT path, name, definition FROM terms ORDER BY lower(name)"):
+        scopes = ", ".join(
+            f"[{scope_name}](scopes/{scope_id}.md)"
+            for scope_id, scope_name in db.execute(
+                "SELECT s.id, s.name FROM scopes AS s "
+                "JOIN term_scopes AS ts ON ts.scope_id = s.id "
+                "WHERE ts.term_path = ? ORDER BY lower(s.name), s.id",
+                (path,),
+            )
+        )
         related = ", ".join(
             f"[{Path(target).stem}]({target})"
             for (target,) in db.execute(
@@ -515,7 +541,7 @@ def database_markdown(db: sqlite3.Connection) -> dict[str, str]:
                 (path,),
             )
         )
-        glossary_rows.append(f"| [{name}]({path}) | {definition} | {related} | {requirements} |")
+        glossary_rows.append(f"| [{name}]({path}) | {scopes} | {definition} | {related} | {requirements} |")
     sources["glossary.md"] = f"# Glossary\n\n<!-- requi:begin glossary -->\n{chr(10).join(glossary_rows)}\n<!-- requi:end -->\n"
     scope_rows = "\n".join(
         f"- [{name}]({scope_id}.md)"

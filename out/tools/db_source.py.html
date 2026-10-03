@@ -498,147 +498,173 @@
 <span id="L498" class="line"><span class="line-number">0498</span>         for layer_id, title in db.execute(&quot;SELECT id, title FROM layers ORDER BY id&quot;)</span>
 <span id="L499" class="line"><span class="line-number">0499</span>     ) or &quot;(no layers yet)&quot;</span>
 <span id="L500" class="line"><span class="line-number">0500</span>     sources[&quot;layers/_layers.md&quot;] = f&quot;# Layers\n\n&lt;!-- requi:begin layers --&gt;\n{layer_rows}\n&lt;!-- requi:end --&gt;\n&quot;</span>
-<span id="L501" class="line"><span class="line-number">0501</span>     glossary_rows = [&quot;| Term | One-liner | Terms (related) | Requirements |&quot;, &quot;|---|---|---|---|&quot;]</span>
-<span id="L502" class="line"><span class="line-number">0502</span>     for path, name, definition in db.execute(&quot;SELECT path, name, definition FROM terms ORDER BY lower(name)&quot;):</span>
-<span id="L503" class="line"><span class="line-number">0503</span>         related = &quot;, &quot;.join(</span>
-<span id="L504" class="line"><span class="line-number">0504</span>             f&quot;[{Path(target).stem}]({target})&quot;</span>
-<span id="L505" class="line"><span class="line-number">0505</span>             for (target,) in db.execute(</span>
-<span id="L506" class="line"><span class="line-number">0506</span>                 &quot;SELECT related_path FROM term_related WHERE term_path = ? ORDER BY related_path&quot;, (path,)</span>
-<span id="L507" class="line"><span class="line-number">0507</span>             )</span>
-<span id="L508" class="line"><span class="line-number">0508</span>         )</span>
-<span id="L509" class="line"><span class="line-number">0509</span>         requirements = &quot;, &quot;.join(</span>
-<span id="L510" class="line"><span class="line-number">0510</span>             f&quot;[{req_id}]({source}#{req_id.lower()})&quot;</span>
-<span id="L511" class="line"><span class="line-number">0511</span>             for req_id, source in db.execute(</span>
-<span id="L512" class="line"><span class="line-number">0512</span>                 &quot;SELECT r.id, r.source FROM requirements AS r &quot;</span>
-<span id="L513" class="line"><span class="line-number">0513</span>                 &quot;JOIN term_requirements AS tr ON tr.requirement_id = r.id &quot;</span>
-<span id="L514" class="line"><span class="line-number">0514</span>                 &quot;WHERE tr.term_path = ? ORDER BY r.id&quot;,</span>
-<span id="L515" class="line"><span class="line-number">0515</span>                 (path,),</span>
-<span id="L516" class="line"><span class="line-number">0516</span>             )</span>
-<span id="L517" class="line"><span class="line-number">0517</span>         )</span>
-<span id="L518" class="line"><span class="line-number">0518</span>         glossary_rows.append(f&quot;| [{name}]({path}) | {definition} | {related} | {requirements} |&quot;)</span>
-<span id="L519" class="line"><span class="line-number">0519</span>     sources[&quot;glossary.md&quot;] = f&quot;# Glossary\n\n&lt;!-- requi:begin glossary --&gt;\n{chr(10).join(glossary_rows)}\n&lt;!-- requi:end --&gt;\n&quot;</span>
-<span id="L520" class="line"><span class="line-number">0520</span>     scope_rows = &quot;\n&quot;.join(</span>
-<span id="L521" class="line"><span class="line-number">0521</span>         f&quot;- [{name}]({scope_id}.md)&quot;</span>
-<span id="L522" class="line"><span class="line-number">0522</span>         for scope_id, name in db.execute(&quot;SELECT id, name FROM scopes ORDER BY lower(name), id&quot;)</span>
-<span id="L523" class="line"><span class="line-number">0523</span>     ) or &quot;(no scopes yet)&quot;</span>
-<span id="L524" class="line"><span class="line-number">0524</span>     sources[&quot;scopes/_scopes.md&quot;] = f&quot;# Scopes\n\n&lt;!-- requi:begin scopes --&gt;\n{scope_rows}\n&lt;!-- requi:end --&gt;\n&quot;</span>
-<span id="L525" class="line"><span class="line-number">0525</span>     requirement_rows = &quot;\n&quot;.join(</span>
-<span id="L526" class="line"><span class="line-number">0526</span>         f&quot;- [{name}](scopes/{scope_id}.md)&quot;</span>
-<span id="L527" class="line"><span class="line-number">0527</span>         for scope_id, name in db.execute(</span>
-<span id="L528" class="line"><span class="line-number">0528</span>             &quot;SELECT s.id, s.name FROM scopes AS s &quot;</span>
-<span id="L529" class="line"><span class="line-number">0529</span>             &quot;JOIN requirement_sources AS rs ON rs.scope_id = s.id &quot;</span>
-<span id="L530" class="line"><span class="line-number">0530</span>             &quot;GROUP BY s.id, s.name ORDER BY lower(s.name), s.id&quot;</span>
-<span id="L531" class="line"><span class="line-number">0531</span>         )</span>
-<span id="L532" class="line"><span class="line-number">0532</span>     ) or &quot;(no requirement categories yet)&quot;</span>
-<span id="L533" class="line"><span class="line-number">0533</span>     sources[&quot;requirements.md&quot;] = f&quot;# Requirements\n\n&lt;!-- requi:begin requirements --&gt;\n{requirement_rows}\n&lt;!-- requi:end --&gt;\n&quot;</span>
-<span id="L534" class="line"><span class="line-number">0534</span>     return sources</span>
-<span id="L535" class="line"><span class="line-number">0535</span> </span>
-<span id="L536" class="line"><span class="line-number">0536</span> </span>
-<span id="L537" class="line"><span class="line-number">0537</span> def markdown_database_differences(db: sqlite3.Connection) -&gt; list[str]:</span>
-<span id="L538" class="line"><span class="line-number">0538</span>     &quot;&quot;&quot;Find semantic Markdown content that is absent from or differs from SQLite.&quot;&quot;&quot;</span>
-<span id="L539" class="line"><span class="line-number">0539</span>     errors: list[str] = []</span>
-<span id="L540" class="line"><span class="line-number">0540</span> </span>
-<span id="L541" class="line"><span class="line-number">0541</span>     db_layer_ids = {layer_id for (layer_id,) in db.execute(&quot;SELECT id FROM layers&quot;)}</span>
-<span id="L542" class="line"><span class="line-number">0542</span>     md_layers = {</span>
-<span id="L543" class="line"><span class="line-number">0543</span>         path.stem: path</span>
-<span id="L544" class="line"><span class="line-number">0544</span>         for path in (ROOT / &quot;layers&quot;).glob(&quot;*.md&quot;)</span>
-<span id="L545" class="line"><span class="line-number">0545</span>         if path.name != &quot;_layers.md&quot;</span>
-<span id="L546" class="line"><span class="line-number">0546</span>     }</span>
-<span id="L547" class="line"><span class="line-number">0547</span>     for layer_id in sorted(set(md_layers) - db_layer_ids):</span>
-<span id="L548" class="line"><span class="line-number">0548</span>         errors.append(f&quot;layers/{layer_id}.md: Markdown layer is absent from SQLite&quot;)</span>
-<span id="L549" class="line"><span class="line-number">0549</span>     for layer_id in sorted(db_layer_ids - set(md_layers)):</span>
-<span id="L550" class="line"><span class="line-number">0550</span>         errors.append(f&quot;layers/{layer_id}.md: SQLite layer has no Markdown projection&quot;)</span>
-<span id="L551" class="line"><span class="line-number">0551</span>     for layer_id in sorted(db_layer_ids &amp; set(md_layers)):</span>
-<span id="L552" class="line"><span class="line-number">0552</span>         markdown = _layer_row(md_layers[layer_id])</span>
-<span id="L553" class="line"><span class="line-number">0553</span>         row = db.execute(&quot;SELECT title, description FROM layers WHERE id = ?&quot;, (layer_id,)).fetchone()</span>
-<span id="L554" class="line"><span class="line-number">0554</span>         if markdown[&quot;title&quot;] != row[0]:</span>
-<span id="L555" class="line"><span class="line-number">0555</span>             errors.append(f&quot;layers/{layer_id}.md: title differs between Markdown and SQLite&quot;)</span>
-<span id="L556" class="line"><span class="line-number">0556</span>         if markdown[&quot;description&quot;] != row[1]:</span>
-<span id="L557" class="line"><span class="line-number">0557</span>             errors.append(f&quot;layers/{layer_id}.md: description differs between Markdown and SQLite&quot;)</span>
-<span id="L558" class="line"><span class="line-number">0558</span> </span>
-<span id="L559" class="line"><span class="line-number">0559</span>     markdown_sources = {</span>
-<span id="L560" class="line"><span class="line-number">0560</span>         path.relative_to(ROOT).as_posix(): (title, text)</span>
-<span id="L561" class="line"><span class="line-number">0561</span>         for path, title, text in _requirement_sources()</span>
-<span id="L562" class="line"><span class="line-number">0562</span>     }</span>
-<span id="L563" class="line"><span class="line-number">0563</span>     db_sources = {</span>
-<span id="L564" class="line"><span class="line-number">0564</span>         path: title</span>
-<span id="L565" class="line"><span class="line-number">0565</span>         for path, title in db.execute(&quot;SELECT path, title FROM requirement_sources&quot;)</span>
-<span id="L566" class="line"><span class="line-number">0566</span>     }</span>
-<span id="L567" class="line"><span class="line-number">0567</span>     for source in sorted(set(markdown_sources) - set(db_sources)):</span>
-<span id="L568" class="line"><span class="line-number">0568</span>         errors.append(f&quot;{source}: Markdown requirement source is absent from SQLite&quot;)</span>
-<span id="L569" class="line"><span class="line-number">0569</span>     for source in sorted(set(db_sources) - set(markdown_sources)):</span>
-<span id="L570" class="line"><span class="line-number">0570</span>         errors.append(f&quot;{source}: SQLite requirement source has no Markdown projection&quot;)</span>
-<span id="L571" class="line"><span class="line-number">0571</span>     for source in sorted(set(markdown_sources) &amp; set(db_sources)):</span>
-<span id="L572" class="line"><span class="line-number">0572</span>         markdown_title, markdown_text = markdown_sources[source]</span>
-<span id="L573" class="line"><span class="line-number">0573</span>         if markdown_title != db_sources[source]:</span>
-<span id="L574" class="line"><span class="line-number">0574</span>             errors.append(f&quot;{source}: title differs between Markdown and SQLite&quot;)</span>
-<span id="L575" class="line"><span class="line-number">0575</span>         markdown_requirements = {</span>
-<span id="L576" class="line"><span class="line-number">0576</span>             requirement_id: (title, status, layer_id, body)</span>
-<span id="L577" class="line"><span class="line-number">0577</span>             for requirement_id, title, body, status, layer_id in _requirement_rows(markdown_text)</span>
-<span id="L578" class="line"><span class="line-number">0578</span>         }</span>
-<span id="L579" class="line"><span class="line-number">0579</span>         db_requirements = {</span>
-<span id="L580" class="line"><span class="line-number">0580</span>             requirement_id: (title, status, layer_id, body)</span>
-<span id="L581" class="line"><span class="line-number">0581</span>             for requirement_id, title, status, layer_id, body in db.execute(</span>
-<span id="L582" class="line"><span class="line-number">0582</span>                 &quot;SELECT id, title, status, layer_id, body FROM requirements WHERE source = ?&quot;,</span>
-<span id="L583" class="line"><span class="line-number">0583</span>                 (source,),</span>
-<span id="L584" class="line"><span class="line-number">0584</span>             )</span>
-<span id="L585" class="line"><span class="line-number">0585</span>         }</span>
-<span id="L586" class="line"><span class="line-number">0586</span>         for requirement_id in sorted(set(markdown_requirements) - set(db_requirements)):</span>
-<span id="L587" class="line"><span class="line-number">0587</span>             errors.append(f&quot;{source}#{requirement_id}: Markdown requirement is absent from SQLite&quot;)</span>
-<span id="L588" class="line"><span class="line-number">0588</span>         for requirement_id in sorted(set(db_requirements) - set(markdown_requirements)):</span>
-<span id="L589" class="line"><span class="line-number">0589</span>             errors.append(f&quot;{source}#{requirement_id}: SQLite requirement has no Markdown projection&quot;)</span>
-<span id="L590" class="line"><span class="line-number">0590</span>         for requirement_id in sorted(set(markdown_requirements) &amp; set(db_requirements)):</span>
-<span id="L591" class="line"><span class="line-number">0591</span>             if markdown_requirements[requirement_id] != db_requirements[requirement_id]:</span>
-<span id="L592" class="line"><span class="line-number">0592</span>                 errors.append(f&quot;{source}#{requirement_id}: fields differ between Markdown and SQLite&quot;)</span>
-<span id="L593" class="line"><span class="line-number">0593</span> </span>
-<span id="L594" class="line"><span class="line-number">0594</span>     db_lexemes = {</span>
-<span id="L595" class="line"><span class="line-number">0595</span>         lexeme_id: (lemma, language, category)</span>
-<span id="L596" class="line"><span class="line-number">0596</span>         for lexeme_id, lemma, language, category in db.execute(</span>
-<span id="L597" class="line"><span class="line-number">0597</span>             &quot;SELECT id, lemma, language, category FROM lexemes&quot;</span>
-<span id="L598" class="line"><span class="line-number">0598</span>         )</span>
-<span id="L599" class="line"><span class="line-number">0599</span>     }</span>
-<span id="L600" class="line"><span class="line-number">0600</span>     md_lexemes = {}</span>
-<span id="L601" class="line"><span class="line-number">0601</span>     for path in (ROOT / &quot;lexemes&quot;).glob(&quot;L*.md&quot;):</span>
-<span id="L602" class="line"><span class="line-number">0602</span>         text = path.read_text(encoding=&quot;utf-8&quot;)</span>
-<span id="L603" class="line"><span class="line-number">0603</span>         language = re.search(r&quot;^- \*\*Language:\*\* ([^\n]+)$&quot;, text, re.M)</span>
-<span id="L604" class="line"><span class="line-number">0604</span>         category = re.search(r&quot;^- \*\*Lexical category:\*\* ([^\n]+)$&quot;, text, re.M)</span>
-<span id="L605" class="line"><span class="line-number">0605</span>         md_lexemes[path.stem] = (_title(text), language.group(1).strip() if language else &quot;&quot;, category.group(1).strip() if category else &quot;&quot;)</span>
-<span id="L606" class="line"><span class="line-number">0606</span>     for lexeme_id in sorted(set(md_lexemes) - set(db_lexemes)):</span>
-<span id="L607" class="line"><span class="line-number">0607</span>         errors.append(f&quot;lexemes/{lexeme_id}.md: Markdown lexeme is absent from SQLite&quot;)</span>
-<span id="L608" class="line"><span class="line-number">0608</span>     for lexeme_id in sorted(set(db_lexemes) - set(md_lexemes)):</span>
-<span id="L609" class="line"><span class="line-number">0609</span>         errors.append(f&quot;lexemes/{lexeme_id}.md: SQLite lexeme has no Markdown projection&quot;)</span>
-<span id="L610" class="line"><span class="line-number">0610</span>     for lexeme_id in sorted(set(md_lexemes) &amp; set(db_lexemes)):</span>
-<span id="L611" class="line"><span class="line-number">0611</span>         if md_lexemes[lexeme_id] != db_lexemes[lexeme_id]:</span>
-<span id="L612" class="line"><span class="line-number">0612</span>             errors.append(f&quot;lexemes/{lexeme_id}.md: fields differ between Markdown and SQLite&quot;)</span>
-<span id="L613" class="line"><span class="line-number">0613</span>     return errors</span>
-<span id="L614" class="line"><span class="line-number">0614</span> </span>
-<span id="L615" class="line"><span class="line-number">0615</span> </span>
-<span id="L616" class="line"><span class="line-number">0616</span> def render_database(db: sqlite3.Connection | None = None) -&gt; None:</span>
-<span id="L617" class="line"><span class="line-number">0617</span>     owns_db = db is None</span>
-<span id="L618" class="line"><span class="line-number">0618</span>     db = db or sqlite3.connect(ROOT / &quot;requi.db&quot;)</span>
-<span id="L619" class="line"><span class="line-number">0619</span>     sources = database_markdown(db)</span>
-<span id="L620" class="line"><span class="line-number">0620</span>     for path in (ROOT / &quot;terms&quot;).glob(&quot;*.md&quot;):</span>
-<span id="L621" class="line"><span class="line-number">0621</span>         path.unlink()</span>
-<span id="L622" class="line"><span class="line-number">0622</span>     for path in (ROOT / &quot;scopes&quot;).glob(&quot;*.md&quot;):</span>
-<span id="L623" class="line"><span class="line-number">0623</span>         path.unlink()</span>
-<span id="L624" class="line"><span class="line-number">0624</span>     expected_layers = {ROOT / path for path in sources if path.startswith(&quot;layers/&quot;) and path != &quot;layers/_layers.md&quot;}</span>
-<span id="L625" class="line"><span class="line-number">0625</span>     expected_requirements = {ROOT / path for path in sources if path.startswith(&quot;requirements/&quot;)}</span>
-<span id="L626" class="line"><span class="line-number">0626</span>     expected_lexemes = {ROOT / path for path in sources if path.startswith(&quot;lexemes/L&quot;)}</span>
-<span id="L627" class="line"><span class="line-number">0627</span>     for path in (ROOT / &quot;layers&quot;).glob(&quot;*.md&quot;):</span>
-<span id="L628" class="line"><span class="line-number">0628</span>         if path.name != &quot;_layers.md&quot; and path not in expected_layers:</span>
-<span id="L629" class="line"><span class="line-number">0629</span>             path.unlink()</span>
-<span id="L630" class="line"><span class="line-number">0630</span>     for path in (ROOT / &quot;requirements&quot;).rglob(&quot;*.md&quot;):</span>
-<span id="L631" class="line"><span class="line-number">0631</span>         if path not in expected_requirements:</span>
-<span id="L632" class="line"><span class="line-number">0632</span>             path.unlink()</span>
-<span id="L633" class="line"><span class="line-number">0633</span>     for path in (ROOT / &quot;lexemes&quot;).glob(&quot;L*.md&quot;):</span>
-<span id="L634" class="line"><span class="line-number">0634</span>         if path not in expected_lexemes:</span>
-<span id="L635" class="line"><span class="line-number">0635</span>             path.unlink()</span>
-<span id="L636" class="line"><span class="line-number">0636</span>     for relative, content in sources.items():</span>
-<span id="L637" class="line"><span class="line-number">0637</span>         if relative.startswith((&quot;terms/&quot;, &quot;scopes/&quot;)):</span>
-<span id="L638" class="line"><span class="line-number">0638</span>             continue</span>
-<span id="L639" class="line"><span class="line-number">0639</span>         target = ROOT / relative</span>
-<span id="L640" class="line"><span class="line-number">0640</span>         target.parent.mkdir(parents=True, exist_ok=True)</span>
-<span id="L641" class="line"><span class="line-number">0641</span>         target.write_text(content, encoding=&quot;utf-8&quot;)</span>
-<span id="L642" class="line"><span class="line-number">0642</span>     if owns_db:</span>
-<span id="L643" class="line"><span class="line-number">0643</span>         db.commit()</span>
-<span id="L644" class="line"><span class="line-number">0644</span>         db.close()</span></code></pre>
+<span id="L501" class="line"><span class="line-number">0501</span>     glossary_scope_rows = [</span>
+<span id="L502" class="line"><span class="line-number">0502</span>         f&quot;- [{name}](scopes/{scope_id}.md) — {term_count} term(s)&quot;</span>
+<span id="L503" class="line"><span class="line-number">0503</span>         for scope_id, name, term_count in db.execute(</span>
+<span id="L504" class="line"><span class="line-number">0504</span>             &quot;SELECT s.id, s.name, COUNT(ts.term_path) &quot;</span>
+<span id="L505" class="line"><span class="line-number">0505</span>             &quot;FROM scopes AS s JOIN term_scopes AS ts ON ts.scope_id = s.id &quot;</span>
+<span id="L506" class="line"><span class="line-number">0506</span>             &quot;GROUP BY s.id, s.name ORDER BY lower(s.name), s.id&quot;</span>
+<span id="L507" class="line"><span class="line-number">0507</span>         )</span>
+<span id="L508" class="line"><span class="line-number">0508</span>     ]</span>
+<span id="L509" class="line"><span class="line-number">0509</span>     glossary_rows = [</span>
+<span id="L510" class="line"><span class="line-number">0510</span>         &quot;## Scopes&quot;,</span>
+<span id="L511" class="line"><span class="line-number">0511</span>         &quot;&quot;,</span>
+<span id="L512" class="line"><span class="line-number">0512</span>         &quot;\n&quot;.join(glossary_scope_rows) or &quot;(no scoped terms yet)&quot;,</span>
+<span id="L513" class="line"><span class="line-number">0513</span>         &quot;&quot;,</span>
+<span id="L514" class="line"><span class="line-number">0514</span>         &quot;## Terms&quot;,</span>
+<span id="L515" class="line"><span class="line-number">0515</span>         &quot;&quot;,</span>
+<span id="L516" class="line"><span class="line-number">0516</span>         &quot;| Term | Scope(s) | One-liner | Terms (related) | Requirements |&quot;,</span>
+<span id="L517" class="line"><span class="line-number">0517</span>         &quot;|---|---|---|---|---|&quot;,</span>
+<span id="L518" class="line"><span class="line-number">0518</span>     ]</span>
+<span id="L519" class="line"><span class="line-number">0519</span>     for path, name, definition in db.execute(&quot;SELECT path, name, definition FROM terms ORDER BY lower(name)&quot;):</span>
+<span id="L520" class="line"><span class="line-number">0520</span>         scopes = &quot;, &quot;.join(</span>
+<span id="L521" class="line"><span class="line-number">0521</span>             f&quot;[{scope_name}](scopes/{scope_id}.md)&quot;</span>
+<span id="L522" class="line"><span class="line-number">0522</span>             for scope_id, scope_name in db.execute(</span>
+<span id="L523" class="line"><span class="line-number">0523</span>                 &quot;SELECT s.id, s.name FROM scopes AS s &quot;</span>
+<span id="L524" class="line"><span class="line-number">0524</span>                 &quot;JOIN term_scopes AS ts ON ts.scope_id = s.id &quot;</span>
+<span id="L525" class="line"><span class="line-number">0525</span>                 &quot;WHERE ts.term_path = ? ORDER BY lower(s.name), s.id&quot;,</span>
+<span id="L526" class="line"><span class="line-number">0526</span>                 (path,),</span>
+<span id="L527" class="line"><span class="line-number">0527</span>             )</span>
+<span id="L528" class="line"><span class="line-number">0528</span>         )</span>
+<span id="L529" class="line"><span class="line-number">0529</span>         related = &quot;, &quot;.join(</span>
+<span id="L530" class="line"><span class="line-number">0530</span>             f&quot;[{Path(target).stem}]({target})&quot;</span>
+<span id="L531" class="line"><span class="line-number">0531</span>             for (target,) in db.execute(</span>
+<span id="L532" class="line"><span class="line-number">0532</span>                 &quot;SELECT related_path FROM term_related WHERE term_path = ? ORDER BY related_path&quot;, (path,)</span>
+<span id="L533" class="line"><span class="line-number">0533</span>             )</span>
+<span id="L534" class="line"><span class="line-number">0534</span>         )</span>
+<span id="L535" class="line"><span class="line-number">0535</span>         requirements = &quot;, &quot;.join(</span>
+<span id="L536" class="line"><span class="line-number">0536</span>             f&quot;[{req_id}]({source}#{req_id.lower()})&quot;</span>
+<span id="L537" class="line"><span class="line-number">0537</span>             for req_id, source in db.execute(</span>
+<span id="L538" class="line"><span class="line-number">0538</span>                 &quot;SELECT r.id, r.source FROM requirements AS r &quot;</span>
+<span id="L539" class="line"><span class="line-number">0539</span>                 &quot;JOIN term_requirements AS tr ON tr.requirement_id = r.id &quot;</span>
+<span id="L540" class="line"><span class="line-number">0540</span>                 &quot;WHERE tr.term_path = ? ORDER BY r.id&quot;,</span>
+<span id="L541" class="line"><span class="line-number">0541</span>                 (path,),</span>
+<span id="L542" class="line"><span class="line-number">0542</span>             )</span>
+<span id="L543" class="line"><span class="line-number">0543</span>         )</span>
+<span id="L544" class="line"><span class="line-number">0544</span>         glossary_rows.append(f&quot;| [{name}]({path}) | {scopes} | {definition} | {related} | {requirements} |&quot;)</span>
+<span id="L545" class="line"><span class="line-number">0545</span>     sources[&quot;glossary.md&quot;] = f&quot;# Glossary\n\n&lt;!-- requi:begin glossary --&gt;\n{chr(10).join(glossary_rows)}\n&lt;!-- requi:end --&gt;\n&quot;</span>
+<span id="L546" class="line"><span class="line-number">0546</span>     scope_rows = &quot;\n&quot;.join(</span>
+<span id="L547" class="line"><span class="line-number">0547</span>         f&quot;- [{name}]({scope_id}.md)&quot;</span>
+<span id="L548" class="line"><span class="line-number">0548</span>         for scope_id, name in db.execute(&quot;SELECT id, name FROM scopes ORDER BY lower(name), id&quot;)</span>
+<span id="L549" class="line"><span class="line-number">0549</span>     ) or &quot;(no scopes yet)&quot;</span>
+<span id="L550" class="line"><span class="line-number">0550</span>     sources[&quot;scopes/_scopes.md&quot;] = f&quot;# Scopes\n\n&lt;!-- requi:begin scopes --&gt;\n{scope_rows}\n&lt;!-- requi:end --&gt;\n&quot;</span>
+<span id="L551" class="line"><span class="line-number">0551</span>     requirement_rows = &quot;\n&quot;.join(</span>
+<span id="L552" class="line"><span class="line-number">0552</span>         f&quot;- [{name}](scopes/{scope_id}.md)&quot;</span>
+<span id="L553" class="line"><span class="line-number">0553</span>         for scope_id, name in db.execute(</span>
+<span id="L554" class="line"><span class="line-number">0554</span>             &quot;SELECT s.id, s.name FROM scopes AS s &quot;</span>
+<span id="L555" class="line"><span class="line-number">0555</span>             &quot;JOIN requirement_sources AS rs ON rs.scope_id = s.id &quot;</span>
+<span id="L556" class="line"><span class="line-number">0556</span>             &quot;GROUP BY s.id, s.name ORDER BY lower(s.name), s.id&quot;</span>
+<span id="L557" class="line"><span class="line-number">0557</span>         )</span>
+<span id="L558" class="line"><span class="line-number">0558</span>     ) or &quot;(no requirement categories yet)&quot;</span>
+<span id="L559" class="line"><span class="line-number">0559</span>     sources[&quot;requirements.md&quot;] = f&quot;# Requirements\n\n&lt;!-- requi:begin requirements --&gt;\n{requirement_rows}\n&lt;!-- requi:end --&gt;\n&quot;</span>
+<span id="L560" class="line"><span class="line-number">0560</span>     return sources</span>
+<span id="L561" class="line"><span class="line-number">0561</span> </span>
+<span id="L562" class="line"><span class="line-number">0562</span> </span>
+<span id="L563" class="line"><span class="line-number">0563</span> def markdown_database_differences(db: sqlite3.Connection) -&gt; list[str]:</span>
+<span id="L564" class="line"><span class="line-number">0564</span>     &quot;&quot;&quot;Find semantic Markdown content that is absent from or differs from SQLite.&quot;&quot;&quot;</span>
+<span id="L565" class="line"><span class="line-number">0565</span>     errors: list[str] = []</span>
+<span id="L566" class="line"><span class="line-number">0566</span> </span>
+<span id="L567" class="line"><span class="line-number">0567</span>     db_layer_ids = {layer_id for (layer_id,) in db.execute(&quot;SELECT id FROM layers&quot;)}</span>
+<span id="L568" class="line"><span class="line-number">0568</span>     md_layers = {</span>
+<span id="L569" class="line"><span class="line-number">0569</span>         path.stem: path</span>
+<span id="L570" class="line"><span class="line-number">0570</span>         for path in (ROOT / &quot;layers&quot;).glob(&quot;*.md&quot;)</span>
+<span id="L571" class="line"><span class="line-number">0571</span>         if path.name != &quot;_layers.md&quot;</span>
+<span id="L572" class="line"><span class="line-number">0572</span>     }</span>
+<span id="L573" class="line"><span class="line-number">0573</span>     for layer_id in sorted(set(md_layers) - db_layer_ids):</span>
+<span id="L574" class="line"><span class="line-number">0574</span>         errors.append(f&quot;layers/{layer_id}.md: Markdown layer is absent from SQLite&quot;)</span>
+<span id="L575" class="line"><span class="line-number">0575</span>     for layer_id in sorted(db_layer_ids - set(md_layers)):</span>
+<span id="L576" class="line"><span class="line-number">0576</span>         errors.append(f&quot;layers/{layer_id}.md: SQLite layer has no Markdown projection&quot;)</span>
+<span id="L577" class="line"><span class="line-number">0577</span>     for layer_id in sorted(db_layer_ids &amp; set(md_layers)):</span>
+<span id="L578" class="line"><span class="line-number">0578</span>         markdown = _layer_row(md_layers[layer_id])</span>
+<span id="L579" class="line"><span class="line-number">0579</span>         row = db.execute(&quot;SELECT title, description FROM layers WHERE id = ?&quot;, (layer_id,)).fetchone()</span>
+<span id="L580" class="line"><span class="line-number">0580</span>         if markdown[&quot;title&quot;] != row[0]:</span>
+<span id="L581" class="line"><span class="line-number">0581</span>             errors.append(f&quot;layers/{layer_id}.md: title differs between Markdown and SQLite&quot;)</span>
+<span id="L582" class="line"><span class="line-number">0582</span>         if markdown[&quot;description&quot;] != row[1]:</span>
+<span id="L583" class="line"><span class="line-number">0583</span>             errors.append(f&quot;layers/{layer_id}.md: description differs between Markdown and SQLite&quot;)</span>
+<span id="L584" class="line"><span class="line-number">0584</span> </span>
+<span id="L585" class="line"><span class="line-number">0585</span>     markdown_sources = {</span>
+<span id="L586" class="line"><span class="line-number">0586</span>         path.relative_to(ROOT).as_posix(): (title, text)</span>
+<span id="L587" class="line"><span class="line-number">0587</span>         for path, title, text in _requirement_sources()</span>
+<span id="L588" class="line"><span class="line-number">0588</span>     }</span>
+<span id="L589" class="line"><span class="line-number">0589</span>     db_sources = {</span>
+<span id="L590" class="line"><span class="line-number">0590</span>         path: title</span>
+<span id="L591" class="line"><span class="line-number">0591</span>         for path, title in db.execute(&quot;SELECT path, title FROM requirement_sources&quot;)</span>
+<span id="L592" class="line"><span class="line-number">0592</span>     }</span>
+<span id="L593" class="line"><span class="line-number">0593</span>     for source in sorted(set(markdown_sources) - set(db_sources)):</span>
+<span id="L594" class="line"><span class="line-number">0594</span>         errors.append(f&quot;{source}: Markdown requirement source is absent from SQLite&quot;)</span>
+<span id="L595" class="line"><span class="line-number">0595</span>     for source in sorted(set(db_sources) - set(markdown_sources)):</span>
+<span id="L596" class="line"><span class="line-number">0596</span>         errors.append(f&quot;{source}: SQLite requirement source has no Markdown projection&quot;)</span>
+<span id="L597" class="line"><span class="line-number">0597</span>     for source in sorted(set(markdown_sources) &amp; set(db_sources)):</span>
+<span id="L598" class="line"><span class="line-number">0598</span>         markdown_title, markdown_text = markdown_sources[source]</span>
+<span id="L599" class="line"><span class="line-number">0599</span>         if markdown_title != db_sources[source]:</span>
+<span id="L600" class="line"><span class="line-number">0600</span>             errors.append(f&quot;{source}: title differs between Markdown and SQLite&quot;)</span>
+<span id="L601" class="line"><span class="line-number">0601</span>         markdown_requirements = {</span>
+<span id="L602" class="line"><span class="line-number">0602</span>             requirement_id: (title, status, layer_id, body)</span>
+<span id="L603" class="line"><span class="line-number">0603</span>             for requirement_id, title, body, status, layer_id in _requirement_rows(markdown_text)</span>
+<span id="L604" class="line"><span class="line-number">0604</span>         }</span>
+<span id="L605" class="line"><span class="line-number">0605</span>         db_requirements = {</span>
+<span id="L606" class="line"><span class="line-number">0606</span>             requirement_id: (title, status, layer_id, body)</span>
+<span id="L607" class="line"><span class="line-number">0607</span>             for requirement_id, title, status, layer_id, body in db.execute(</span>
+<span id="L608" class="line"><span class="line-number">0608</span>                 &quot;SELECT id, title, status, layer_id, body FROM requirements WHERE source = ?&quot;,</span>
+<span id="L609" class="line"><span class="line-number">0609</span>                 (source,),</span>
+<span id="L610" class="line"><span class="line-number">0610</span>             )</span>
+<span id="L611" class="line"><span class="line-number">0611</span>         }</span>
+<span id="L612" class="line"><span class="line-number">0612</span>         for requirement_id in sorted(set(markdown_requirements) - set(db_requirements)):</span>
+<span id="L613" class="line"><span class="line-number">0613</span>             errors.append(f&quot;{source}#{requirement_id}: Markdown requirement is absent from SQLite&quot;)</span>
+<span id="L614" class="line"><span class="line-number">0614</span>         for requirement_id in sorted(set(db_requirements) - set(markdown_requirements)):</span>
+<span id="L615" class="line"><span class="line-number">0615</span>             errors.append(f&quot;{source}#{requirement_id}: SQLite requirement has no Markdown projection&quot;)</span>
+<span id="L616" class="line"><span class="line-number">0616</span>         for requirement_id in sorted(set(markdown_requirements) &amp; set(db_requirements)):</span>
+<span id="L617" class="line"><span class="line-number">0617</span>             if markdown_requirements[requirement_id] != db_requirements[requirement_id]:</span>
+<span id="L618" class="line"><span class="line-number">0618</span>                 errors.append(f&quot;{source}#{requirement_id}: fields differ between Markdown and SQLite&quot;)</span>
+<span id="L619" class="line"><span class="line-number">0619</span> </span>
+<span id="L620" class="line"><span class="line-number">0620</span>     db_lexemes = {</span>
+<span id="L621" class="line"><span class="line-number">0621</span>         lexeme_id: (lemma, language, category)</span>
+<span id="L622" class="line"><span class="line-number">0622</span>         for lexeme_id, lemma, language, category in db.execute(</span>
+<span id="L623" class="line"><span class="line-number">0623</span>             &quot;SELECT id, lemma, language, category FROM lexemes&quot;</span>
+<span id="L624" class="line"><span class="line-number">0624</span>         )</span>
+<span id="L625" class="line"><span class="line-number">0625</span>     }</span>
+<span id="L626" class="line"><span class="line-number">0626</span>     md_lexemes = {}</span>
+<span id="L627" class="line"><span class="line-number">0627</span>     for path in (ROOT / &quot;lexemes&quot;).glob(&quot;L*.md&quot;):</span>
+<span id="L628" class="line"><span class="line-number">0628</span>         text = path.read_text(encoding=&quot;utf-8&quot;)</span>
+<span id="L629" class="line"><span class="line-number">0629</span>         language = re.search(r&quot;^- \*\*Language:\*\* ([^\n]+)$&quot;, text, re.M)</span>
+<span id="L630" class="line"><span class="line-number">0630</span>         category = re.search(r&quot;^- \*\*Lexical category:\*\* ([^\n]+)$&quot;, text, re.M)</span>
+<span id="L631" class="line"><span class="line-number">0631</span>         md_lexemes[path.stem] = (_title(text), language.group(1).strip() if language else &quot;&quot;, category.group(1).strip() if category else &quot;&quot;)</span>
+<span id="L632" class="line"><span class="line-number">0632</span>     for lexeme_id in sorted(set(md_lexemes) - set(db_lexemes)):</span>
+<span id="L633" class="line"><span class="line-number">0633</span>         errors.append(f&quot;lexemes/{lexeme_id}.md: Markdown lexeme is absent from SQLite&quot;)</span>
+<span id="L634" class="line"><span class="line-number">0634</span>     for lexeme_id in sorted(set(db_lexemes) - set(md_lexemes)):</span>
+<span id="L635" class="line"><span class="line-number">0635</span>         errors.append(f&quot;lexemes/{lexeme_id}.md: SQLite lexeme has no Markdown projection&quot;)</span>
+<span id="L636" class="line"><span class="line-number">0636</span>     for lexeme_id in sorted(set(md_lexemes) &amp; set(db_lexemes)):</span>
+<span id="L637" class="line"><span class="line-number">0637</span>         if md_lexemes[lexeme_id] != db_lexemes[lexeme_id]:</span>
+<span id="L638" class="line"><span class="line-number">0638</span>             errors.append(f&quot;lexemes/{lexeme_id}.md: fields differ between Markdown and SQLite&quot;)</span>
+<span id="L639" class="line"><span class="line-number">0639</span>     return errors</span>
+<span id="L640" class="line"><span class="line-number">0640</span> </span>
+<span id="L641" class="line"><span class="line-number">0641</span> </span>
+<span id="L642" class="line"><span class="line-number">0642</span> def render_database(db: sqlite3.Connection | None = None) -&gt; None:</span>
+<span id="L643" class="line"><span class="line-number">0643</span>     owns_db = db is None</span>
+<span id="L644" class="line"><span class="line-number">0644</span>     db = db or sqlite3.connect(ROOT / &quot;requi.db&quot;)</span>
+<span id="L645" class="line"><span class="line-number">0645</span>     sources = database_markdown(db)</span>
+<span id="L646" class="line"><span class="line-number">0646</span>     for path in (ROOT / &quot;terms&quot;).glob(&quot;*.md&quot;):</span>
+<span id="L647" class="line"><span class="line-number">0647</span>         path.unlink()</span>
+<span id="L648" class="line"><span class="line-number">0648</span>     for path in (ROOT / &quot;scopes&quot;).glob(&quot;*.md&quot;):</span>
+<span id="L649" class="line"><span class="line-number">0649</span>         path.unlink()</span>
+<span id="L650" class="line"><span class="line-number">0650</span>     expected_layers = {ROOT / path for path in sources if path.startswith(&quot;layers/&quot;) and path != &quot;layers/_layers.md&quot;}</span>
+<span id="L651" class="line"><span class="line-number">0651</span>     expected_requirements = {ROOT / path for path in sources if path.startswith(&quot;requirements/&quot;)}</span>
+<span id="L652" class="line"><span class="line-number">0652</span>     expected_lexemes = {ROOT / path for path in sources if path.startswith(&quot;lexemes/L&quot;)}</span>
+<span id="L653" class="line"><span class="line-number">0653</span>     for path in (ROOT / &quot;layers&quot;).glob(&quot;*.md&quot;):</span>
+<span id="L654" class="line"><span class="line-number">0654</span>         if path.name != &quot;_layers.md&quot; and path not in expected_layers:</span>
+<span id="L655" class="line"><span class="line-number">0655</span>             path.unlink()</span>
+<span id="L656" class="line"><span class="line-number">0656</span>     for path in (ROOT / &quot;requirements&quot;).rglob(&quot;*.md&quot;):</span>
+<span id="L657" class="line"><span class="line-number">0657</span>         if path not in expected_requirements:</span>
+<span id="L658" class="line"><span class="line-number">0658</span>             path.unlink()</span>
+<span id="L659" class="line"><span class="line-number">0659</span>     for path in (ROOT / &quot;lexemes&quot;).glob(&quot;L*.md&quot;):</span>
+<span id="L660" class="line"><span class="line-number">0660</span>         if path not in expected_lexemes:</span>
+<span id="L661" class="line"><span class="line-number">0661</span>             path.unlink()</span>
+<span id="L662" class="line"><span class="line-number">0662</span>     for relative, content in sources.items():</span>
+<span id="L663" class="line"><span class="line-number">0663</span>         if relative.startswith((&quot;terms/&quot;, &quot;scopes/&quot;)):</span>
+<span id="L664" class="line"><span class="line-number">0664</span>             continue</span>
+<span id="L665" class="line"><span class="line-number">0665</span>         target = ROOT / relative</span>
+<span id="L666" class="line"><span class="line-number">0666</span>         target.parent.mkdir(parents=True, exist_ok=True)</span>
+<span id="L667" class="line"><span class="line-number">0667</span>         target.write_text(content, encoding=&quot;utf-8&quot;)</span>
+<span id="L668" class="line"><span class="line-number">0668</span>     if owns_db:</span>
+<span id="L669" class="line"><span class="line-number">0669</span>         db.commit()</span>
+<span id="L670" class="line"><span class="line-number">0670</span>         db.close()</span></code></pre>

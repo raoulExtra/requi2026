@@ -5,30 +5,35 @@
 <nav><a href="_HOME.html">Project Requi home</a></nav>
 <main><h1 id="glossary">Glossary</h1>
 <p>&lt;!-- requi:begin glossary --&gt;</p>
-<table><thead><tr><th>Term</th><th>One-liner</th><th>Terms (related)</th><th>Requirements</th></tr></thead><tbody>
-<tr><td><a href="terms/category.html">category</a></td><td></td><td></td><td></td></tr>
-<tr><td><a href="terms/column.html">Column</a></td><td>A named field in a table that defines the type or meaning of one value across rows.</td><td><a href="terms/row.html">row</a>, <a href="terms/table.html">table</a></td><td></td></tr>
-<tr><td><a href="terms/create.html">Create</a></td><td>Establish a new resource or record.</td><td></td><td></td></tr>
-<tr><td><a href="terms/cursor.html">Cursor</a></td><td>A stateful handle for traversing, reading, or incrementally processing a result set.</td><td><a href="terms/index.html">index</a>, <a href="terms/row.html">row</a></td><td></td></tr>
-<tr><td><a href="terms/delete.html">Delete</a></td><td>Remove an existing resource or record.</td><td></td><td></td></tr>
-<tr><td><a href="terms/home.html">home</a></td><td></td><td></td><td></td></tr>
-<tr><td><a href="terms/index.html">Index</a></td><td>An auxiliary data structure that accelerates lookup or ordering by selected table columns or keys.</td><td><a href="terms/column.html">column</a>, <a href="terms/cursor.html">cursor</a>, <a href="terms/table.html">table</a></td><td></td></tr>
-<tr><td><a href="terms/layer-wikidata.html">layer Wikidata</a></td><td></td><td></td><td></td></tr>
-<tr><td><a href="terms/lexeme.html">lexeme</a></td><td></td><td></td><td></td></tr>
-<tr><td><a href="terms/lexeme-synchronize-verb.html">lexeme synchronize verb</a></td><td></td><td></td><td></td></tr>
-<tr><td><a href="terms/link.html">link</a></td><td></td><td></td><td></td></tr>
-<tr><td><a href="terms/phase.html">phase</a></td><td></td><td></td><td></td></tr>
-<tr><td><a href="terms/project.html">project</a></td><td></td><td></td><td></td></tr>
-<tr><td><a href="terms/read.html">Read</a></td><td>Retrieve an existing resource or record without changing it.</td><td></td><td></td></tr>
-<tr><td><a href="terms/row.html">Row</a></td><td>A single record in a table, represented by one value for each applicable column.</td><td><a href="terms/column.html">column</a>, <a href="terms/table.html">table</a></td><td></td></tr>
-<tr><td><a href="terms/seq-numbering.html">Sequence numbering</a></td><td>Strictly increasing sender seq; receivers reject seq &lt;= lastSeq; timestamp is diagnostic only.</td><td></td><td></td></tr>
-<tr><td><a href="terms/state-machine.html">State machine</a></td><td>Avatar states (waiting/thinking/success/error) plus transient success/error timers with per-frame application precedence.</td><td></td><td></td></tr>
-<tr><td><a href="terms/syntax-probe.html">Syntax probe</a></td><td></td><td></td><td></td></tr>
-<tr><td><a href="terms/table.html">Table</a></td><td>A named collection of rows organized into columns within a relational or tabular data store.</td><td><a href="terms/column.html">column</a>, <a href="terms/index.html">index</a>, <a href="terms/row.html">row</a></td><td></td></tr>
-<tr><td><a href="terms/test.html">test</a></td><td></td><td></td><td></td></tr>
-<tr><td><a href="terms/update.html">Update</a></td><td>Modify an existing resource or record.</td><td></td><td></td></tr>
-<tr><td><a href="terms/verification.html">verification</a></td><td></td><td></td><td></td></tr>
-<tr><td><a href="terms/vrm.html">VRM</a></td><td>3D virtual humanoid model format for real-time avatars. VRM 1.0 is the primary target; 0.x must load with explicit capability reports.</td><td></td><td></td></tr>
-<tr><td><a href="terms/wd-item.html">wd-item</a></td><td></td><td></td><td></td></tr>
+<h2 id="scopes">Scopes</h2>
+<ul>
+<li><a href="scopes/db.html">DB</a> — 9 term(s)</li>
+</ul>
+<h2 id="terms">Terms</h2>
+<table><thead><tr><th>Term</th><th>Scope(s)</th><th>One-liner</th><th>Terms (related)</th><th>Requirements</th></tr></thead><tbody>
+<tr><td><a href="terms/category.html">category</a></td><td></td><td></td><td></td><td></td></tr>
+<tr><td><a href="terms/column.html">Column</a></td><td><a href="scopes/db.html">DB</a></td><td>A named field in a table that defines the type or meaning of one value across rows.</td><td><a href="terms/row.html">row</a>, <a href="terms/table.html">table</a></td><td></td></tr>
+<tr><td><a href="terms/create.html">Create</a></td><td><a href="scopes/db.html">DB</a></td><td>Establish a new resource or record.</td><td></td><td></td></tr>
+<tr><td><a href="terms/cursor.html">Cursor</a></td><td><a href="scopes/db.html">DB</a></td><td>A stateful handle for traversing, reading, or incrementally processing a result set.</td><td><a href="terms/index.html">index</a>, <a href="terms/row.html">row</a></td><td></td></tr>
+<tr><td><a href="terms/delete.html">Delete</a></td><td><a href="scopes/db.html">DB</a></td><td>Remove an existing resource or record.</td><td></td><td></td></tr>
+<tr><td><a href="terms/home.html">home</a></td><td></td><td></td><td></td><td></td></tr>
+<tr><td><a href="terms/index.html">Index</a></td><td><a href="scopes/db.html">DB</a></td><td>An auxiliary data structure that accelerates lookup or ordering by selected table columns or keys.</td><td><a href="terms/column.html">column</a>, <a href="terms/cursor.html">cursor</a>, <a href="terms/table.html">table</a></td><td></td></tr>
+<tr><td><a href="terms/layer-wikidata.html">layer Wikidata</a></td><td></td><td></td><td></td><td></td></tr>
+<tr><td><a href="terms/lexeme.html">lexeme</a></td><td></td><td></td><td></td><td></td></tr>
+<tr><td><a href="terms/lexeme-synchronize-verb.html">lexeme synchronize verb</a></td><td></td><td></td><td></td><td></td></tr>
+<tr><td><a href="terms/link.html">link</a></td><td></td><td></td><td></td><td></td></tr>
+<tr><td><a href="terms/phase.html">phase</a></td><td></td><td></td><td></td><td></td></tr>
+<tr><td><a href="terms/project.html">project</a></td><td></td><td></td><td></td><td></td></tr>
+<tr><td><a href="terms/read.html">Read</a></td><td><a href="scopes/db.html">DB</a></td><td>Retrieve an existing resource or record without changing it.</td><td></td><td></td></tr>
+<tr><td><a href="terms/row.html">Row</a></td><td><a href="scopes/db.html">DB</a></td><td>A single record in a table, represented by one value for each applicable column.</td><td><a href="terms/column.html">column</a>, <a href="terms/table.html">table</a></td><td></td></tr>
+<tr><td><a href="terms/seq-numbering.html">Sequence numbering</a></td><td></td><td>Strictly increasing sender seq; receivers reject seq &lt;= lastSeq; timestamp is diagnostic only.</td><td></td><td></td></tr>
+<tr><td><a href="terms/state-machine.html">State machine</a></td><td></td><td>Avatar states (waiting/thinking/success/error) plus transient success/error timers with per-frame application precedence.</td><td></td><td></td></tr>
+<tr><td><a href="terms/syntax-probe.html">Syntax probe</a></td><td></td><td></td><td></td><td></td></tr>
+<tr><td><a href="terms/table.html">Table</a></td><td><a href="scopes/db.html">DB</a></td><td>A named collection of rows organized into columns within a relational or tabular data store.</td><td><a href="terms/column.html">column</a>, <a href="terms/index.html">index</a>, <a href="terms/row.html">row</a></td><td></td></tr>
+<tr><td><a href="terms/test.html">test</a></td><td></td><td></td><td></td><td></td></tr>
+<tr><td><a href="terms/update.html">Update</a></td><td><a href="scopes/db.html">DB</a></td><td>Modify an existing resource or record.</td><td></td><td></td></tr>
+<tr><td><a href="terms/verification.html">verification</a></td><td></td><td></td><td></td><td></td></tr>
+<tr><td><a href="terms/vrm.html">VRM</a></td><td></td><td>3D virtual humanoid model format for real-time avatars. VRM 1.0 is the primary target; 0.x must load with explicit capability reports.</td><td></td><td></td></tr>
+<tr><td><a href="terms/wd-item.html">wd-item</a></td><td></td><td></td><td></td><td></td></tr>
 </tbody></table>
 <p>&lt;!-- requi:end --&gt;</p></main>
