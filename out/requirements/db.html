@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Database requirements — Requi</title>
+<style>:root{color-scheme:light dark}body{font:16px/1.6 system-ui,sans-serif;max-width:72rem;margin:0 auto;padding:2rem 1.25rem;background:#10141c;color:#e8edf5}main{background:#171d28;border:1px solid #2c3748;border-radius:14px;padding:2rem}nav{margin-bottom:1rem}a{color:#72b7ff}h1,h2,h3{line-height:1.2;color:#fff}pre{background:#0b0e13;border:1px solid #2c3748;border-radius:8px;padding:1rem;overflow:auto}code{background:#0b0e13;padding:.15rem .35rem;border-radius:4px}table{width:100%;border-collapse:collapse;margin:1rem 0}td,th{border:1px solid #3a4658;padding:.6rem;text-align:left}th{background:#222c3b}blockquote{border-left:4px solid #72b7ff;margin:1rem 0;padding:.25rem 1rem;color:#b8c4d6}</style>
+<nav><a href="../_HOME.html">Requi home</a></nav>
+<main><h1 id="database-requirements">Database requirements</h1>
+<h2 id="db-001">DB-001 — Preserve the live database</h2>
+<ul>
+<li><strong>Status:</strong> ACTIVE</li>
+<li><strong>Source:</strong> project decision</li>
+<li><strong>Layer:</strong> db</li>
+<li><strong>Notes:</strong> Database synchronization MUST NOT drop or recreate the live database. Existing records and unrelated application data MUST remain intact.</li>
+</ul>
+<h2 id="db-002">DB-002 — Synchronize Markdown metadata safely</h2>
+<ul>
+<li><strong>Status:</strong> ACTIVE</li>
+<li><strong>Source:</strong> project decision</li>
+<li><strong>Layer:</strong> db</li>
+<li><strong>Notes:</strong> <code>build</code> SHOULD use idempotent schema creation and upserts. Repeated builds MUST produce stable records without duplicating relationships.</li>
+</ul>
+<h2 id="db-003">DB-003 — Track Wikidata Lexemes in the database</h2>
+<ul>
+<li><strong>Status:</strong> ACTIVE</li>
+<li><strong>Source:</strong> project decision</li>
+<li><strong>Layer:</strong> db</li>
+<li><strong>Notes:</strong> Wikidata Lexeme identifiers, lemmas, language, lexical category, and linked term paths MUST be stored in <code>requi.db.lexemes</code>. Markdown and HTML Lexeme indexes MUST be derived from that table.</li>
+</ul>
+<h2 id="db-004">DB-004 — Track generated HTML freshness</h2>
+<ul>
+<li><strong>Status:</strong> ACTIVE</li>
+<li><strong>Source:</strong> project decision</li>
+<li><strong>Layer:</strong> db</li>
+<li><strong>Notes:</strong> The database MUST record source hashes for generated site pages so the CLI can report whether HTML regeneration is required.</li>
+</ul>
+<h2 id="db-005">DB-005 — Expose semantic name collisions</h2>
+<ul>
+<li><strong>Status:</strong> ACTIVE</li>
+<li><strong>Source:</strong> project decision</li>
+<li><strong>Layer:</strong> db</li>
+<li><strong>Notes:</strong> Database views MUST expose named entities across terms, layers, commands, tables, and views, including case-insensitive name collisions.</li>
+</ul>
+<h2 id="db-006">DB-006 — Keep layers out of the term vocabulary</h2>
+<ul>
+<li><strong>Status:</strong> ACTIVE</li>
+<li><strong>Source:</strong> project decision</li>
+<li><strong>Layer:</strong> db</li>
+<li><strong>Notes:</strong> Layers MUST be represented and rendered as layers, never inserted into the <code>terms</code> table or displayed as terms in the glossary and term indexes.</li>
+</ul></main>

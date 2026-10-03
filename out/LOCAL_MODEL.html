@@ -1,0 +1,33 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Local model delegation — Requi</title>
+<style>:root{color-scheme:light dark}body{font:16px/1.6 system-ui,sans-serif;max-width:72rem;margin:0 auto;padding:2rem 1.25rem;background:#10141c;color:#e8edf5}main{background:#171d28;border:1px solid #2c3748;border-radius:14px;padding:2rem}nav{margin-bottom:1rem}a{color:#72b7ff}h1,h2,h3{line-height:1.2;color:#fff}pre{background:#0b0e13;border:1px solid #2c3748;border-radius:8px;padding:1rem;overflow:auto}code{background:#0b0e13;padding:.15rem .35rem;border-radius:4px}table{width:100%;border-collapse:collapse;margin:1rem 0}td,th{border:1px solid #3a4658;padding:.6rem;text-align:left}th{background:#222c3b}blockquote{border-left:4px solid #72b7ff;margin:1rem 0;padding:.25rem 1rem;color:#b8c4d6}</style>
+<nav><a href="_HOME.html">Requi home</a></nav>
+<main><h1 id="local-model-delegation">Local model delegation</h1>
+<p>The project can use Barbara's LM Studio model for subprocess and review tasks.</p>
+<ul>
+<li><strong>Host:</strong> <code>barbara</code></li>
+<li><strong>Base URL:</strong> <code>http://barbara:1234/v1</code></li>
+<li><strong>Model:</strong> <code>nvidia/nemotron-3-nano-4b</code></li>
+<li><strong>Chat endpoint:</strong> <code>http://barbara:1234/v1/chat/completions</code></li>
+<li><strong>Helper:</strong> <code>./requi_assistant.py</code></li>
+</ul>
+<h2 id="usage">Usage</h2>
+<p>From this directory:</p>
+<pre><code>
+./requi_assistant.py &quot;Find missing glossary back-links&quot;
+
+./requi_assistant.py &quot;Propose the next requirements for this project&quot;
+
+</code></pre>
+<p>The helper sends the readable Markdown files in this project as context. It is read-only: the model proposes answers and changes but does not edit project files.</p>
+<p>Override the defaults when needed:</p>
+<pre><code>
+LM_STUDIO_URL=http://barbara:1234/v1 \
+
+LM_MODEL=nvidia/nemotron-3-nano-4b \
+
+./requi_assistant.py &quot;Review the requirements&quot;
+
+</code></pre>
+<p>Before applying model output, verify every referenced file, requirement ID, term, and cross-link against the repository. The model may produce incorrect or invented paths.</p></main>
