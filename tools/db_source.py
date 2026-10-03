@@ -254,7 +254,7 @@ def database_markdown(db: sqlite3.Connection) -> dict[str, str]:
     lexeme_entries = "\n".join(f"- [{lemma}]({lexeme_id}.md)" for lexeme_id, lemma, _, _ in lexeme_rows) or "(no lexemes yet)"
     sources["lexemes/_lexemes.md"] = (
         "# Lexemes (Wikidata)\n\n"
-        "One file per Wikidata Lexeme: `lexemes/L-#####.md`, linked from term files.\n"
+        "One file per Wikidata Lexeme: `lexemes/L#####.md`, linked from term files.\n"
         "Populated from `requi.db`.\n\n"
         "<!-- requi:begin lexemes -->\n"
         f"{lexeme_entries}\n"

@@ -9,7 +9,7 @@ Jump between **terms** (glossary), **layers** (architecture), and **software req
 | [terms/](terms/) | One file per term `terms/<kebab-name>.md` |
 | [layers/_layers.md](layers/_layers.md) | Architecture overview + generated jump table |
 | [layers/frontend.md](layers/frontend.md) … | One file per layer: terms, requirements, code paths |
-| [Lexeme index](lexemes/_lexemes.md) | One file per Wikidata Lexeme `L-#####` |
+| [Lexeme index](lexemes/_lexemes.md) | One file per Wikidata Lexeme `L#####` |
 | [requirements.md](requirements.md) | All requirements, IDs such as `REQ-###` and `DB-###` (never reused) |
 | [requirements/](requirements/) | Requirement sources, including general project conventions under `requirements/general/` |
 | [requi.db](requi.db) | Canonical semantic graph and migration state; `build` performs the one-time Markdown import, then SQLite drives projections and site rendering |
@@ -18,7 +18,7 @@ Jump between **terms** (glossary), **layers** (architecture), and **software req
 | [COMMAND_AST.md](COMMAND_AST.md) | Command AST views and generated `argparse` parser code |
 
 ## Conventions
-- **Term file:** H1 = display name; optional metadata line `> **Wikidata:** [Q####](url)` / `> **Lexeme:** [L-####](lexemes/L-####.md)`; sections `## Definition`, `## Layers`, `## Related terms`, `## Requirements`.
+- **Term file:** H1 = display name; optional metadata line `> **Wikidata:** [Q####](url)` / `> **Lexeme:** [L####](lexemes/L####.md)`; sections `## Definition`, `## Layers`, `## Related terms`, `## Requirements`.
 - **Bidirectional links:** term ↔ requirement (`REQ-###`), term ↔ layer. Keep both sides or run `tools/requi.py check` which reports orphans (see `v_term_orphans`, `v_layer_orphans`).
 - **SQLite source of truth:** edit semantic entities through `tools/requi.py` or the database. Markdown under `terms/`, `layers/`, `requirements/`, and `lexemes/` is a generated SQLite projection; `check` reports semantic Markdown information absent from or different from SQLite.
 - **Workflow:** `python3 tools/requi.py build` (one-time migration) → use `add`/`update`/`delete` or SQL → `python3 tools/requi.py render` for Markdown projections → `python3 tools/site.py` renders managed pages directly from SQLite. `python3 tools/requi.py status` checks the same SQLite-backed source map.
