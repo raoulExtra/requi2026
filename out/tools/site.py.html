@@ -320,32 +320,33 @@
 <span id="L320" class="line"><span class="line-number">0320</span>                 for match in re.finditer(r&quot;^## ((?:REQ|DB)-\d+) — (.+)$&quot;, markdown, re.M):</span>
 <span id="L321" class="line"><span class="line-number">0321</span>                     if match.group(1) in {&quot;DB-001&quot;, &quot;DB-002&quot;, &quot;DB-003&quot;, &quot;DB-004&quot;, &quot;DB-005&quot;, &quot;DB-006&quot;}:</span>
 <span id="L322" class="line"><span class="line-number">0322</span>                         continue</span>
-<span id="L323" class="line"><span class="line-number">0323</span>                     requirement_entries.append(</span>
-<span id="L324" class="line"><span class="line-number">0324</span>                         f&#x27;&lt;li&gt;&lt;a href=&quot;{Path(relative).stem}.html#{match.group(1).lower()}&quot;&gt;{match.group(1)} — {html.escape(match.group(2))}&lt;/a&gt;&lt;/li&gt;&#x27;</span>
-<span id="L325" class="line"><span class="line-number">0325</span>                     )</span>
-<span id="L326" class="line"><span class="line-number">0326</span>             entries = entries + &quot;\n&quot; + &quot;\n&quot;.join(requirement_entries)</span>
-<span id="L327" class="line"><span class="line-number">0327</span>         (directory / &quot;index.html&quot;).write_text(</span>
-<span id="L328" class="line"><span class="line-number">0328</span>             f&#x27;&lt;!doctype html&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;title&gt;{directory.name} — Requi&lt;/title&gt;&#x27;</span>
-<span id="L329" class="line"><span class="line-number">0329</span>             f&#x27;&lt;style&gt;body{{font:16px system-ui,sans-serif;max-width:60rem;margin:2rem auto}}a{{color:#06c}}&lt;/style&gt;&#x27;</span>
-<span id="L330" class="line"><span class="line-number">0330</span>             f&#x27;&lt;h1&gt;{directory.name}&lt;/h1&gt;&lt;ul&gt;{entries}&lt;/ul&gt;&#x27;,</span>
-<span id="L331" class="line"><span class="line-number">0331</span>             encoding=&quot;utf-8&quot;,</span>
-<span id="L332" class="line"><span class="line-number">0332</span>         )</span>
-<span id="L333" class="line"><span class="line-number">0333</span> </span>
-<span id="L334" class="line"><span class="line-number">0334</span>     render_python_sources(db)</span>
-<span id="L335" class="line"><span class="line-number">0335</span>     render_python_index(db)</span>
-<span id="L336" class="line"><span class="line-number">0336</span> </span>
-<span id="L337" class="line"><span class="line-number">0337</span>     (OUT / &quot;index.html&quot;).write_text(</span>
-<span id="L338" class="line"><span class="line-number">0338</span>         &#x27;&lt;!doctype html&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&#x27;</span>
-<span id="L339" class="line"><span class="line-number">0339</span>         &#x27;&lt;meta http-equiv=&quot;refresh&quot; content=&quot;0; url=_HOME.html&quot;&gt;&#x27;</span>
-<span id="L340" class="line"><span class="line-number">0340</span>         &#x27;&lt;title&gt;Requi&lt;/title&gt;&lt;a href=&quot;_HOME.html&quot;&gt;Open Requi home&lt;/a&gt;&#x27;,</span>
-<span id="L341" class="line"><span class="line-number">0341</span>         encoding=&quot;utf-8&quot;,</span>
-<span id="L342" class="line"><span class="line-number">0342</span>     )</span>
-<span id="L343" class="line"><span class="line-number">0343</span>     print(f&quot;Generated {len(sources)} HTML pages in {OUT.relative_to(ROOT)}/&quot;)</span>
-<span id="L344" class="line"><span class="line-number">0344</span>     db.commit()</span>
-<span id="L345" class="line"><span class="line-number">0345</span>     db.close()</span>
-<span id="L346" class="line"><span class="line-number">0346</span> </span>
+<span id="L323" class="line"><span class="line-number">0323</span>                     requirement_href = Path(relative).with_suffix(&quot;.html&quot;).relative_to(&quot;requirements&quot;).as_posix()</span>
+<span id="L324" class="line"><span class="line-number">0324</span>                     requirement_entries.append(</span>
+<span id="L325" class="line"><span class="line-number">0325</span>                         f&#x27;&lt;li&gt;&lt;a href=&quot;{html.escape(requirement_href, quote=True)}#{match.group(1).lower()}&quot;&gt;{match.group(1)} — {html.escape(match.group(2))}&lt;/a&gt;&lt;/li&gt;&#x27;</span>
+<span id="L326" class="line"><span class="line-number">0326</span>                     )</span>
+<span id="L327" class="line"><span class="line-number">0327</span>             entries = entries + &quot;\n&quot; + &quot;\n&quot;.join(requirement_entries)</span>
+<span id="L328" class="line"><span class="line-number">0328</span>         (directory / &quot;index.html&quot;).write_text(</span>
+<span id="L329" class="line"><span class="line-number">0329</span>             f&#x27;&lt;!doctype html&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;title&gt;{directory.name} — Requi&lt;/title&gt;&#x27;</span>
+<span id="L330" class="line"><span class="line-number">0330</span>             f&#x27;&lt;style&gt;body{{font:16px system-ui,sans-serif;max-width:60rem;margin:2rem auto}}a{{color:#06c}}&lt;/style&gt;&#x27;</span>
+<span id="L331" class="line"><span class="line-number">0331</span>             f&#x27;&lt;h1&gt;{directory.name}&lt;/h1&gt;&lt;ul&gt;{entries}&lt;/ul&gt;&#x27;,</span>
+<span id="L332" class="line"><span class="line-number">0332</span>             encoding=&quot;utf-8&quot;,</span>
+<span id="L333" class="line"><span class="line-number">0333</span>         )</span>
+<span id="L334" class="line"><span class="line-number">0334</span> </span>
+<span id="L335" class="line"><span class="line-number">0335</span>     render_python_sources(db)</span>
+<span id="L336" class="line"><span class="line-number">0336</span>     render_python_index(db)</span>
+<span id="L337" class="line"><span class="line-number">0337</span> </span>
+<span id="L338" class="line"><span class="line-number">0338</span>     (OUT / &quot;index.html&quot;).write_text(</span>
+<span id="L339" class="line"><span class="line-number">0339</span>         &#x27;&lt;!doctype html&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&#x27;</span>
+<span id="L340" class="line"><span class="line-number">0340</span>         &#x27;&lt;meta http-equiv=&quot;refresh&quot; content=&quot;0; url=_HOME.html&quot;&gt;&#x27;</span>
+<span id="L341" class="line"><span class="line-number">0341</span>         &#x27;&lt;title&gt;Requi&lt;/title&gt;&lt;a href=&quot;_HOME.html&quot;&gt;Open Requi home&lt;/a&gt;&#x27;,</span>
+<span id="L342" class="line"><span class="line-number">0342</span>         encoding=&quot;utf-8&quot;,</span>
+<span id="L343" class="line"><span class="line-number">0343</span>     )</span>
+<span id="L344" class="line"><span class="line-number">0344</span>     print(f&quot;Generated {len(sources)} HTML pages in {OUT.relative_to(ROOT)}/&quot;)</span>
+<span id="L345" class="line"><span class="line-number">0345</span>     db.commit()</span>
+<span id="L346" class="line"><span class="line-number">0346</span>     db.close()</span>
 <span id="L347" class="line"><span class="line-number">0347</span> </span>
-<span id="L348" class="line"><span class="line-number">0348</span> if __name__ == &quot;__main__&quot;:</span>
-<span id="L349" class="line"><span class="line-number">0349</span>     if sys.argv[1:] == [&quot;--status&quot;]:</span>
-<span id="L350" class="line"><span class="line-number">0350</span>         raise SystemExit(status())</span>
-<span id="L351" class="line"><span class="line-number">0351</span>     main()</span></code></pre>
+<span id="L348" class="line"><span class="line-number">0348</span> </span>
+<span id="L349" class="line"><span class="line-number">0349</span> if __name__ == &quot;__main__&quot;:</span>
+<span id="L350" class="line"><span class="line-number">0350</span>     if sys.argv[1:] == [&quot;--status&quot;]:</span>
+<span id="L351" class="line"><span class="line-number">0351</span>         raise SystemExit(status())</span>
+<span id="L352" class="line"><span class="line-number">0352</span>     main()</span></code></pre>

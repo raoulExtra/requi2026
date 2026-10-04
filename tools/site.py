@@ -320,8 +320,9 @@ def main() -> None:
                 for match in re.finditer(r"^## ((?:REQ|DB)-\d+) — (.+)$", markdown, re.M):
                     if match.group(1) in {"DB-001", "DB-002", "DB-003", "DB-004", "DB-005", "DB-006"}:
                         continue
+                    requirement_href = Path(relative).with_suffix(".html").relative_to("requirements").as_posix()
                     requirement_entries.append(
-                        f'<li><a href="{Path(relative).stem}.html#{match.group(1).lower()}">{match.group(1)} — {html.escape(match.group(2))}</a></li>'
+                        f'<li><a href="{html.escape(requirement_href, quote=True)}#{match.group(1).lower()}">{match.group(1)} — {html.escape(match.group(2))}</a></li>'
                     )
             entries = entries + "\n" + "\n".join(requirement_entries)
         (directory / "index.html").write_text(
