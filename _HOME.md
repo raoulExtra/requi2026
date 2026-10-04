@@ -6,7 +6,6 @@ Jump between **terms** (glossary), **scopes** (semantic and requirement grouping
 | File | Purpose |
 |---|---|
 | [glossary.md](glossary.md) | A–Z index of all terms |
-| [terms/](terms/) | Database-backed HTML page for each term; term records are stored only in `requi.db` |
 | [scopes/_scopes.md](scopes/_scopes.md) | Scope index; scopes group terms and requirement categories |
 | [layers/_layers.md](layers/_layers.md) | Architecture overview + generated jump table |
 | [layers/frontend.md](layers/frontend.md) … | One file per layer: terms, requirements, code paths |
