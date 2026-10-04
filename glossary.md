@@ -4,6 +4,7 @@
 ## Scopes
 
 - [DB](scopes/db.md) — 9 term(s)
+- [reuse](scopes/reuse.md) — 5 term(s)
 - [Wikidata](scopes/wikidata.md) — 4 term(s)
 
 ## Terms
