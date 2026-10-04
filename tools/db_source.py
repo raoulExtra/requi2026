@@ -28,6 +28,12 @@ DB_TERM_SCOPE_PATHS = (
     "terms/table.md",
     "terms/update.md",
 )
+WIKIDATA_TERM_SCOPE_PATHS = (
+    "terms/layer-wikidata.md",
+    "terms/lexeme-synchronize-verb.md",
+    "terms/lexeme.md",
+    "terms/wd-item.md",
+)
 
 
 
@@ -105,6 +111,7 @@ def ensure_schema(db: sqlite3.Connection) -> None:
     _sync_requirement_scopes(db)
     _sync_python_file_catalog(db)
     _sync_database_term_scopes(db)
+    _sync_wikidata_scope(db)
     _sync_code_scopes(db)
     _sync_python_requirements(db)
 
@@ -132,6 +139,18 @@ def _sync_database_term_scopes(db: sqlite3.Connection) -> None:
             "INSERT OR IGNORE INTO term_scopes(term_path, scope_id) VALUES (?, 'db')",
             (path,),
         )
+def _sync_wikidata_scope(db: sqlite3.Connection) -> None:
+    db.execute(
+        "INSERT OR IGNORE INTO scopes(id, name, description) VALUES (?, ?, ?)",
+        ("wikidata", "Wikidata", "Wikidata terms and lexeme metadata."),
+    )
+    for path in WIKIDATA_TERM_SCOPE_PATHS:
+        db.execute(
+            "INSERT OR IGNORE INTO term_scopes(term_path, scope_id) VALUES (?, 'wikidata')",
+            (path,),
+        )
+
+
 
 def _sync_code_scopes(db: sqlite3.Connection) -> None:
     db.execute(
@@ -516,7 +535,11 @@ def database_markdown(db: sqlite3.Connection) -> dict[str, str]:
         "| Term | Scope(s) | One-liner | Terms (related) | Requirements |",
         "|---|---|---|---|---|",
     ]
-    for path, name, definition in db.execute("SELECT path, name, definition FROM terms ORDER BY lower(name)"):
+    for path, name, definition in db.execute(
+        "SELECT t.path, t.name, t.definition FROM terms AS t "
+        "WHERE NOT EXISTS (SELECT 1 FROM term_scopes AS ts WHERE ts.term_path = t.path) "
+        "ORDER BY lower(t.name)"
+    ):
         scopes = ", ".join(
             f"[{scope_name}](scopes/{scope_id}.md)"
             for scope_id, scope_name in db.execute(

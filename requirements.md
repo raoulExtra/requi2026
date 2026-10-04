@@ -2,5 +2,5 @@
 
 <!-- requi:begin requirements -->
 - [DB](scopes/db.md)
-- [General](scopes/general.md)
+- [general](scopes/general.md)
 <!-- requi:end -->
