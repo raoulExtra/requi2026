@@ -34,6 +34,10 @@ WIKIDATA_TERM_SCOPE_PATHS = (
     "terms/lexeme.md",
     "terms/wd-item.md",
 )
+LAYER_SCOPE_PAIRS = (
+    ("db", "db"),
+    ("wikidata", "wikidata"),
+)
 
 
 
@@ -112,6 +116,7 @@ def ensure_schema(db: sqlite3.Connection) -> None:
     _sync_python_file_catalog(db)
     _sync_database_term_scopes(db)
     _sync_wikidata_scope(db)
+    _sync_layer_scopes(db)
     _sync_code_scopes(db)
     _sync_python_requirements(db)
 
@@ -149,6 +154,14 @@ def _sync_wikidata_scope(db: sqlite3.Connection) -> None:
             "INSERT OR IGNORE INTO term_scopes(term_path, scope_id) VALUES (?, 'wikidata')",
             (path,),
         )
+def _sync_layer_scopes(db: sqlite3.Connection) -> None:
+    for layer_id, scope_id in LAYER_SCOPE_PAIRS:
+        db.execute(
+            "INSERT OR IGNORE INTO scope_layers(scope_id, layer_id) VALUES (?, ?)",
+            (scope_id, layer_id),
+        )
+
+
 
 
 
@@ -456,7 +469,7 @@ def _layer_markdown(db: sqlite3.Connection, layer_id: str) -> str:
     term_lines = [f"- [{name}](../terms/{Path(path).name})" for path, name in db.execute("SELECT t.path, t.name FROM terms t JOIN term_layers l ON l.term_path = t.path WHERE l.layer_id = ? ORDER BY lower(t.name)", (layer_id,))]
     req_lines = [f"- [{req_id} — {title_text}](../requirements/{Path(source).name}#{req_id.lower()})" for req_id, title_text, source in db.execute("SELECT id, title, source FROM requirements WHERE layer_id = ? ORDER BY id", (layer_id,))]
     return (
-        f"# Layer: {layer_id}\n\n{description}\n\n"
+        f"# Layer: {title}\n\n{description}\n\n"
         f"## Scopes\n\n{chr(10).join(scope_lines) or '(no scopes yet)'}\n\n"
         f"<!-- requi:begin layer-terms-{layer_id} -->\n{chr(10).join(term_lines) or '(no terms yet)'}\n<!-- requi:end -->\n\n"
         f"<!-- requi:begin layer-reqs-{layer_id} -->\n{chr(10).join(req_lines) or '(no requirements yet)'}\n<!-- requi:end -->\n"

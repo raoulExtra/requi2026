@@ -6,9 +6,9 @@
 - [bridge](bridge.md)
 - [code](code.md)
 - [data](data.md)
-- [db](db.md)
+- [DB](db.md)
 - [frontend](frontend.md)
 - [infra](infra.md)
 - [state](state.md)
-- [wikidata](wikidata.md)
+- [Wikidata](wikidata.md)
 <!-- requi:end -->

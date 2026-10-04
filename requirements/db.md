@@ -9,7 +9,7 @@
 ### Code references
 
 - [requi_assistant.py:17](../requi_assistant.py.html#L17)
-- [tools/db_source.py:83](../tools/db_source.py.html#L83)
+- [tools/db_source.py:87](../tools/db_source.py.html#L87)
 - [tools/requi.py:137](../tools/requi.py.html#L137)
 
 ## DB-002 — Synchronize Markdown metadata safely
@@ -22,7 +22,7 @@
 
 - [requi_assistant.py:17](../requi_assistant.py.html#L17)
 - [tools/command_ast.py:62](../tools/command_ast.py.html#L62)
-- [tools/db_source.py:83](../tools/db_source.py.html#L83)
+- [tools/db_source.py:87](../tools/db_source.py.html#L87)
 - [tools/requi.py:137](../tools/requi.py.html#L137)
 
 ## DB-003 — Track Wikidata Lexemes in the database
@@ -33,7 +33,7 @@
 
 ### Code references
 
-- [tools/db_source.py:83](../tools/db_source.py.html#L83)
+- [tools/db_source.py:87](../tools/db_source.py.html#L87)
 - [tools/wikidata.py:79](../tools/wikidata.py.html#L79)
 
 ## DB-004 — Track generated HTML freshness
@@ -67,5 +67,11 @@
 
 ### Code references
 
-- [tools/db_source.py:83](../tools/db_source.py.html#L83)
+- [tools/db_source.py:87](../tools/db_source.py.html#L87)
 - [tools/requi.py:137](../tools/requi.py.html#L137)
+
+## DB-007 — Keep layer-to-scope associations explicit
+- **Status:** ACTIVE
+- **Source:** project decision
+- **Layer:** db
+- **Notes:** Layer-to-scope relationships MUST be stored explicitly in `scope_layers`. A layer MUST NOT create a scope automatically merely because both identifiers have the same name.

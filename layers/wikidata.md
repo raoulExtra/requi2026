@@ -1,10 +1,10 @@
-# Layer: wikidata
+# Layer: Wikidata
 
 
 
 ## Scopes
 
-(no scopes yet)
+- [Wikidata](../scopes/wikidata.md)
 
 <!-- requi:begin layer-terms-wikidata -->
 (no terms yet)
