@@ -10,9 +10,6 @@ Jump between **terms** (glossary), **scopes** (semantic and requirement grouping
 | [layers/_layers](layers/_layers.html) | Architecture overview + generated jump table |
 | [layers/frontend] … | One file per layer: terms, requirements, code paths |
 | [Lexeme index](lexemes/_lexemes.html) | One file per Wikidata Lexeme `L-#####` |
-| [code.python/](code.python/index.html) | Database-backed catalog of Python source files and their responsibilities |
-| [scopes/code.sh](scopes/code.sh.html) | Database-backed `./requi.sh` command and argument reference |
-| [scopes/code.python](scopes/code.python.html) | Python source scope within the `code` layer |
 | [requirements](requirements.html) | Scope index for requirement categories; source pages are listed under `requirements/` |
 | [requirements/](requirements/) | Requirement sources, including general project conventions under `requirements/general/` |
 | `requi.db` | Canonical semantic graph and migration state; `build` performs the one-time Markdown import, then SQLite drives projections and site rendering |
